@@ -1,6 +1,7 @@
 import json as _json
 import urllib.parse
 import subprocess
+import time
 import things
 from typing import Optional, Dict, Any, List, Union
 
@@ -29,17 +30,37 @@ def format_when_with_reminder(date: str, time: str) -> str:
     """
     return f"{date}@{time}"
 
+# Outcome of the most recent dispatch, reported by the health endpoint. Writes go
+# out through the URL scheme and are not acknowledged, so a dispatch that starts
+# failing is otherwise silent.
+_last_dispatch: Dict[str, Any] = {"at": None, "ok": None, "error": None}
+
+
+def last_dispatch() -> Dict[str, Any]:
+    """Return a copy of the most recent dispatch outcome."""
+    return dict(_last_dispatch)
+
+
 def execute_url(url: str) -> None:
     """Execute a Things URL without bringing Things to the foreground."""
+    _last_dispatch["at"] = time.time()
     try:
-        # Use 'do shell script' with 'open -g' to open in background
-        subprocess.run([
-            'osascript', '-e',
-            f'do shell script "open -g \\"{url}\\""'
-        ], check=True, capture_output=True, text=True)
-    except subprocess.CalledProcessError:
-        # Fallback - still try with open -g directly
-        subprocess.run(['open', '-g', url], check=True)
+        try:
+            # Use 'do shell script' with 'open -g' to open in background
+            subprocess.run([
+                'osascript', '-e',
+                f'do shell script "open -g \\"{url}\\""'
+            ], check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError:
+            # Fallback - still try with open -g directly
+            subprocess.run(['open', '-g', url], check=True)
+    except Exception as exc:
+        _last_dispatch["ok"] = False
+        _last_dispatch["error"] = str(exc)
+        raise
+    else:
+        _last_dispatch["ok"] = True
+        _last_dispatch["error"] = None
 
 
 def add_area(title: str) -> str:

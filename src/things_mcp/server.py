@@ -3,10 +3,14 @@ import json
 import logging
 import os
 import re
+import subprocess
+import time
 from datetime import datetime, timedelta
+from pathlib import Path
 import things
 from fastmcp import FastMCP
 from fastmcp.tools.tool import ToolResult
+from starlette.responses import JSONResponse
 from .formatters import format_todo, format_project, format_area, format_tag, format_heading
 from .auth import build_auth
 from . import url_scheme
@@ -908,6 +912,59 @@ async def search_items(query: str) -> str:
     url = url_scheme.search(query)
     url_scheme.execute_url(url)
     return f"Searching for '{query}'"
+
+
+def _wal_age_seconds():
+    """Seconds since the Things database write-ahead log was last written.
+
+    A proxy for how recently Things 3 touched its database, and so for how stale a
+    read might be. Returns None if the file cannot be located.
+    """
+    try:
+        wal = Path(f"{things.database.Database().filepath}-wal")
+        return round(time.time() - wal.stat().st_mtime, 1)
+    except (OSError, AttributeError):
+        return None
+
+
+def _things_is_running():
+    """Whether Things 3 is up. Writes are dispatched to it and fail quietly if not."""
+    try:
+        return subprocess.run(
+            ["pgrep", "-x", "Things3"], capture_output=True
+        ).returncode == 0
+    except OSError:
+        return None
+
+
+@mcp.custom_route("/health", methods=["GET"])
+async def health(request):
+    """Unauthenticated health report, for monitoring a remote deployment.
+
+    Surfaces the two ways this server fails without saying so: Things 3 not
+    running, which makes writes vanish, and a database that has not been touched
+    in a long time, which makes reads quietly stale.
+    """
+    running = _things_is_running()
+    wal_age = _wal_age_seconds()
+    dispatch = url_scheme.last_dispatch()
+
+    return JSONResponse(
+        {
+            "status": "ok" if running and wal_age is not None else "degraded",
+            "things_running": running,
+            "database_wal_age_seconds": wal_age,
+            "last_write_dispatch": {
+                "at": (
+                    datetime.fromtimestamp(dispatch["at"]).isoformat()
+                    if dispatch["at"]
+                    else None
+                ),
+                "ok": dispatch["ok"],
+                "error": dispatch["error"],
+            },
+        }
+    )
 
 
 def main():
