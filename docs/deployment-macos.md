@@ -152,6 +152,46 @@ codesign --force --sign - --identifier com.example.things-mcp-python \
 
 Re-grant afterwards. Note this is undone by an interpreter upgrade, like the approval itself.
 
+## Monitoring
+
+`scripts/healthcheck.sh` checks a running server and reports to a dead-man's-switch service such as
+healthchecks.io. Configure it in `~/.things-mcp/check.env`:
+
+```bash
+HEALTH_URL=http://127.0.0.1:18789/health
+PING_URL=https://hc-ping.com/your-uuid-here
+EXPECTED_PYTHON=/Users/you/.local/share/uv/python/cpython-3.12.13-.../bin/python3.12
+VENV_PYTHON=/Users/you/Code/things-mcp/.venv/bin/python
+MAX_WAL_AGE=43200
+```
+
+```cron
+*/10 * * * * /Users/you/Code/things-mcp/scripts/healthcheck.sh >> /Users/you/.things-mcp/check.log 2>&1
+```
+
+`chmod 600` the config: the ping URL is a capability, not just an address.
+
+It reports failure on three things:
+
+- **No response.** Either down, or hung on a permission prompt. A timeout is meaningful here, since
+  the documented failure mode is a hang rather than a crash.
+- **Unhealthy.** Things 3 is not running, so writes are going nowhere.
+- **The interpreter moved.** Compares the resolved interpreter against `EXPECTED_PYTHON`. This is
+  the early warning for the privacy-approval problem above: an upgrade invalidates the grant, and
+  without this the first symptom is the service hanging on its next restart. Re-grant Full Disk
+  Access and update `EXPECTED_PYTHON` together.
+
+It also flags a database that has not been written to in `MAX_WAL_AGE` seconds. Keep this generous.
+The log is only touched when something changes, so a quiet night is not a fault; the point is to
+catch sync being genuinely dead.
+
+An outward ping is what makes the whole machine being gone detectable. A monitor running on the same
+host cannot report its own host's death. Set the expected period to match the cron interval, with a
+grace period of two or three intervals.
+
+Every run is logged, not just failures, so the log doubles as a record of how fresh the database has
+been staying.
+
 ## Checking on it
 
 ```bash
