@@ -290,3 +290,79 @@ THINGS_MCP_TRANSPORT=http THINGS_MCP_HOST=0.0.0.0 THINGS_MCP_PORT=8000 uv run th
 ```
 
 See `.env.example` for a sample configuration file.
+
+#### Health endpoint
+
+HTTP mode serves `GET /health`, which reports whether Things 3 is running, how
+long ago its database was last written, and the outcome of the most recent write
+dispatch:
+
+```json
+{
+  "status": "ok",
+  "things_running": true,
+  "database_wal_age_seconds": 12.4,
+  "last_write_dispatch": { "at": "2026-01-15T09:31:02", "ok": true, "error": null }
+}
+```
+
+This exists because the two most likely failures are silent. If Things 3 is not
+running, writes are dispatched into nothing and appear to succeed. If the
+database stops being updated, reads keep working and quietly return stale data.
+The endpoint is intentionally unauthenticated so a monitor can poll it without
+holding a token; it exposes no task data.
+
+### Authentication
+
+Authentication applies to the HTTP transport only. Stdio is secured by local
+execution and is unaffected.
+
+It is off by default, which is correct when the server is bound to `127.0.0.1`
+or reachable only on a trusted network. Turn it on when the server is exposed to
+the internet.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `THINGS_MCP_AUTH` | `none` | `none` or `password` |
+| `THINGS_MCP_PASSWORD` | — | Shared password; required for `password` mode |
+| `THINGS_MCP_BASE_URL` | — | Public URL clients reach the server on; required for `password` mode |
+| `THINGS_MCP_STATE_DIR` | `~/.things-mcp` | Where registered clients and tokens are stored |
+
+#### Password mode
+
+Remote MCP clients are typically given nothing but a URL — there is no field for
+an API key or a custom header — so the only way they can authenticate is to
+discover OAuth for themselves. `password` mode therefore runs a self-contained
+OAuth 2.1 authorization server whose single credential is a shared password. No
+third-party identity provider is involved.
+
+Clients register themselves, get redirected to a password page, and receive a
+token. Authorization codes use PKCE, access tokens last an hour, and refresh
+tokens rotate on use. Registered clients and tokens are persisted, so restarting
+the server does not force clients to authorize again.
+
+```bash
+THINGS_MCP_TRANSPORT=http \
+THINGS_MCP_PORT=8000 \
+THINGS_MCP_AUTH=password \
+THINGS_MCP_PASSWORD="$(python3 -c 'import uuid; print(uuid.uuid4())')" \
+THINGS_MCP_BASE_URL=https://things.example.com \
+  uv run things-mcp
+```
+
+Then give the client `https://things.example.com/mcp` and nothing else.
+
+Two things are worth getting right:
+
+- **`THINGS_MCP_BASE_URL` must match exactly what clients dial**, including the
+  scheme and with no trailing path. It becomes the OAuth issuer, and a mismatch
+  produces a `401` that does not explain itself. If you put the server behind a
+  reverse proxy or tunnel, this is the public URL, not the local one.
+- **Use a long random password.** It is the only credential protecting the
+  server, and a public hostname will start receiving automated probes within
+  hours of its certificate appearing in transparency logs. Failed attempts are
+  logged with the source address.
+
+Choosing the hostname is close to a one-way door: clients bind their
+registration to the issuer, so changing it later means removing and re-adding
+the connection on every client.
