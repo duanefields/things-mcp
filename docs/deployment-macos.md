@@ -212,10 +212,16 @@ PING_URL=https://hc-ping.com/a-different-uuid
 */15 * * * * /Users/you/Code/things-mcp/scripts/self-update.sh >> /Users/you/.things-mcp/update.log 2>&1
 ```
 
-It exits immediately when the branch has not moved, so a short interval is cheap, and it takes a
-lock so a slow run cannot overlap the next. It leaves the checkout alone if the fetch fails or if
-tracked files have local modifications — better to skip a deploy than to half-apply one or discard
-someone's debugging.
+It exits immediately when there is nothing to do, so a short interval is cheap, and it takes a lock
+so a slow run cannot overlap the next. A failed fetch leaves the checkout untouched — better to skip
+a deploy than half-apply one.
+
+By default it refuses to touch a checkout whose tracked files have been modified, on the assumption
+that somebody is debugging in place. On a host that is only ever deployed to, that assumption is
+wrong and expensive: one stray edit wedges every future deploy, and nobody is reading the log to
+notice. Set `RESET_HARD=true` there and the checkout is made to match the branch exactly, discarding
+local edits after logging them. That also means an edit sitting on the *current* commit is reverted,
+rather than surviving forever because no new commit ever arrives to trigger a correction.
 
 One trap when setting this up: **build the virtualenv where it will finally live.** `uv` records
 absolute paths, so a venv created in one directory and then moved leaves the editable install
