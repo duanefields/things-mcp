@@ -97,14 +97,21 @@ class TestAddTodo:
         assert sc(result)["id"] is None
         assert sc(result)["id_resolved"] is False
 
-    async def test_unresolved_id_reads_as_created_not_failed(self):
+    async def test_unresolved_id_claims_neither_success_nor_failure(self):
+        """A null ID is genuinely ambiguous. Claiming the item "was almost
+        certainly created" talked callers out of checking, so a genuinely lost
+        write got reported to the user as a success."""
         with patch.object(server.url_scheme, "execute_url"), patch.object(
             server, "_existing_ids", return_value=set()
         ), patch.object(server, "_tasks_of", return_value=[]):
             result = await add_todo(title="Slow one", wait_ms=50)
         text = tool_text(result)
         assert sc(result)["id_resolved"] is False
-        assert "Created" in text and "almost certainly" in text
+        assert "UNCONFIRMED" in text
+        assert "almost certainly created" not in text
+        # It must say what to do, or the caller either invents a duplicate or
+        # reports a success it cannot back up.
+        assert "Search for the title" in text
 
     async def test_bad_wait_ms_does_not_dispatch(self):
         with patch.object(server.url_scheme, "execute_url") as dispatch:
@@ -216,16 +223,35 @@ class TestAddTodos:
         dispatch.assert_not_called()
         assert "Todo 1" in sc(result)["error"]
 
-    async def test_unresolved_ids_are_reported_without_claiming_failure(self):
+    async def test_unresolved_ids_claim_neither_success_nor_failure(self):
         with patch.object(server.url_scheme, "execute_url"), patch.object(
             server.things, "token", return_value="tok"
         ), patch.object(server, "_existing_ids", return_value=set()), patch.object(
             server, "_tasks_of", return_value=[]
         ):
             result = await add_todos(todos=[{"title": "a"}, {"title": "b"}], wait_ms=50)
+        text = tool_text(result)
         assert sc(result)["resolved"] == 0
         assert sc(result)["count"] == 2
-        assert "still created" in tool_text(result)
+        # The header must not open with "Created" when nothing was confirmed.
+        assert not text.startswith("Created")
+        assert "could not be confirmed" in text
+        assert "still created" not in text
+
+    async def test_a_fully_resolved_batch_still_reads_as_created(self):
+        """The hedge belongs only on the unconfirmed path."""
+        with patch.object(server.url_scheme, "execute_url"), patch.object(
+            server.things, "token", return_value="tok"
+        ), patch.object(server, "_existing_ids", return_value=set()), patch.object(
+            server, "_tasks_of",
+            return_value=[{"title": "a", "uuid": "a1", "index": 0},
+                          {"title": "b", "uuid": "b1", "index": 1}],
+        ):
+            result = await add_todos(todos=[{"title": "a"}, {"title": "b"}])
+        text = tool_text(result)
+        assert sc(result)["resolved"] == 2
+        assert text.startswith("Created 2 todos")
+        assert "UNCONFIRMED" not in text
 
     async def test_one_wait_covers_the_whole_batch(self):
         """Twenty items must not cost twenty sequential waits."""

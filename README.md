@@ -249,8 +249,10 @@ half a second.
 
 - `wait_ms` - How long to wait for the ID. Omit for the default (1500ms), or pass
   `0` to return immediately with a null ID when you do not need it.
-- `id_resolved` - False means the lookup timed out, **not** that the write failed.
-  The item was still created; do not retry.
+- `id_resolved` - True means the item was found in the database and definitely
+  exists. False means it could **not be confirmed** — the URL scheme never
+  acknowledges a write, so a slow create and a lost one look identical. Search
+  for the title before creating it again.
 
 ### bulk-update-todos
 Applies the same change to every todo in `ids` in a single operation. Requires the Things auth token to be enabled (Things → Settings → General → Enable Things URLs → Manage); the server reads it automatically.

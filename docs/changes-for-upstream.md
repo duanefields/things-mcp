@@ -35,8 +35,12 @@ attempt resolving. `wait_ms` controls the budget per call; `THINGS_MCP_CREATE_WA
 default, and `0` restores the previous fire-and-forget timing for anyone who does not want to pay
 roughly half a second per create.
 
-A null ID always means the lookup timed out, never that the write failed, and both the text and the
-`id_resolved` flag say so, so a caller is not tempted to create the item twice.
+A resolved ID is proof the item exists — the row was read out of the database. A null ID proves
+nothing either way: the URL scheme never acknowledges a write, so a create that was merely slow and
+one that silently failed are indistinguishable. The text says exactly that and tells the caller to
+search by title before retrying, which is the only response that risks neither a phantom success nor
+a duplicate. An earlier version claimed the item "was almost certainly created"; that wording talked
+a caller out of checking, and when a write really was lost the failure was reported as a success.
 
 ### `add_todos`, a batch create that preserves order
 

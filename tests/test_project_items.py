@@ -180,7 +180,11 @@ class TestAddProjectWithItems:
                 {"type": "heading", "title": "A"}, {"type": "todo", "title": "b"},
             ])
         assert [i["id"] for i in sc(result)["items"]] == ["h1", None]
-        assert "still created" in result.content[0].text
+        text = result.content[0].text
+        assert "UNCONFIRMED" in text
+        # The project itself did resolve, so its contents are checkable —
+        # different advice from the case where nothing resolved at all.
+        assert "check its contents" in text
 
     async def test_todos_and_items_together_are_refused(self):
         with patch.object(server.url_scheme, "execute_url") as dispatch:

@@ -678,9 +678,11 @@ def _existing_ids(kind, titles):
 async def _resolve_created(kind, titles, existing, wait_ms):
     """Wait for newly created items and return their IDs, aligned to `titles`.
 
-    Any position that cannot be resolved within the budget comes back as None. A
-    null ID means the confirmation timed out, not that the write failed -- the
-    item has almost certainly been created.
+    Any position that cannot be resolved within the budget comes back as None,
+    which is genuinely ambiguous: the write is dispatched through the URL scheme
+    and never acknowledged, so a slow create and a create that never happened are
+    indistinguishable from here. Finding the row is the only confirmation there
+    is; not finding it confirms nothing either way.
     """
     if wait_ms <= 0:
         return [None] * len(titles)
@@ -821,11 +823,13 @@ def _created_result(kind, title, item_id, wait_ms):
     if item_id:
         text = f"Created new {kind}: {title} (id: {item_id})"
     elif wait_ms <= 0:
-        text = f"Created new {kind}: {title} (id not requested; wait_ms=0)"
+        text = f"Dispatched new {kind}: {title} (not confirmed; wait_ms=0 skips the lookup)"
     else:
         text = (
-            f"Created new {kind}: {title} (id unresolved after {wait_ms}ms; "
-            "the item was almost certainly created)"
+            f"UNCONFIRMED — dispatched new {kind}: {title}, but no matching item "
+            f"appeared within {wait_ms}ms. It was probably created and merely slow, "
+            "but it may not exist at all. Do not assert either way. Search for the "
+            "title before creating it again, or the user gets a silent duplicate."
         )
     return ToolResult(
         content=text,
@@ -856,8 +860,11 @@ async def add_todo(
 
     Returns structured content `{id, id_resolved, title}`. Pass that `id` to
     update-todo, show-item, or as heading-id, and use it as list-id only if the
-    new item is a project. If `id_resolved` is false the todo was still created;
-    only the ID lookup timed out, so do not retry the creation.
+    new item is a project. `id_resolved` true means the todo was found in the
+    database and definitely exists. False means it could not be confirmed: writes
+    go out through the URL scheme and are never acknowledged, so a slow create and
+    a failed one look identical. Report it as unconfirmed rather than guessing,
+    and search for the title before creating it again.
 
     To create several todos at once, prefer add-todos. It is faster and, unlike
     repeated calls to this tool, preserves the order you supply them in.
@@ -919,7 +926,9 @@ async def add_todos(
 
     Returns structured content `{items, count, resolved}`, where each entry is
     `{title, id, id_resolved}` in the order supplied. Pass those ids to
-    update-todo, bulk-update-todos, or show-item.
+    update-todo, bulk-update-todos, or show-item. An entry with `id_resolved`
+    false could not be confirmed — see add-todo for what that does and does not
+    mean.
 
     Args:
         todos: The todos to create, in the order they should appear. Each is an
@@ -989,15 +998,18 @@ async def add_todos(
     ]
     resolved = sum(1 for i in items if i["id_resolved"])
 
-    lines = [f"Created {len(items)} todos in the order given:"]
+    verb = "Created" if resolved == len(items) else "Dispatched"
+    lines = [f"{verb} {len(items)} todos in the order given:"]
     lines += [
-        f"  {n}. {i['title']}" + (f" (id: {i['id']})" if i["id"] else " (id unresolved)")
+        f"  {n}. {i['title']}" + (f" (id: {i['id']})" if i["id"] else " (UNCONFIRMED)")
         for n, i in enumerate(items, 1)
     ]
     if budget > 0 and resolved < len(items):
         lines.append(
-            f"{len(items) - resolved} ID(s) unresolved after {budget}ms; "
-            "those todos were still created."
+            f"{len(items) - resolved} of {len(items)} could not be confirmed within "
+            f"{budget}ms. They were probably created and merely slow, but they may "
+            "not exist at all. Do not assert either way — search for those titles "
+            "before creating them again, or the user gets silent duplicates."
         )
     return ToolResult(
         content="\n".join(lines),
@@ -1151,18 +1163,21 @@ async def add_project(
 
     found = sum(1 for r in resolved if r["id"])
     lines = [
-        f"Created new project: {title}"
-        + (f" (id: {project_id})" if project_id else " (id unresolved)")
+        f"Created new project: {title} (id: {project_id})" if project_id
+        else f"UNCONFIRMED — dispatched new project: {title}, but it did not appear "
+             f"within {budget}ms. Search for the title before creating it again."
     ]
     for entry in resolved:
         label = "#" if entry["type"] == "heading" else "-"
         lines.append(
             f"  {label} {entry['title']}"
-            + (f" (id: {entry['id']})" if entry["id"] else "")
+            + (f" (id: {entry['id']})" if entry["id"] else " (UNCONFIRMED)")
         )
     if project_id and found < len(resolved):
         lines.append(
-            f"{len(resolved) - found} item id(s) unresolved; the items were still created."
+            f"{len(resolved) - found} of {len(resolved)} items could not be confirmed. "
+            "The project exists, so check its contents before adding them again "
+            "rather than assuming they are missing."
         )
 
     return ToolResult(
