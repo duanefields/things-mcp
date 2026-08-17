@@ -60,9 +60,12 @@ fi
 
 # Refuse to clobber local edits: a dirty checkout on a deploy host means someone
 # was debugging in place, and throwing that away silently would be rude.
-if [[ -n "$(git status --porcelain)" ]]; then
-  log "local changes present, refusing to update"
-  ping_hc "/fail" "local changes in $REPO_DIR; not updating"
+# Only tracked files count. Untracked ones -- logs, scratch files, a script
+# copied across by hand -- are none of our business, and treating them as edits
+# means an unrelated stray file blocks every future deploy.
+if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
+  log "tracked files are modified, refusing to update"
+  ping_hc "/fail" "local modifications in $REPO_DIR; not updating"
   exit 1
 fi
 
