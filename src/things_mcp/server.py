@@ -594,7 +594,10 @@ async def get_recent(period: str, limit: int = None, offset: int = 0) -> ToolRes
 # are considered new. The `created` column has one-second resolution, which is too
 # coarse for a write that lands in roughly half that time.
 
-DEFAULT_CREATE_WAIT_MS = 1500
+# Confirming a create costs roughly half a second. That is worth it to get a
+# usable ID back, but a deployment that never needs IDs can set this to 0 and
+# restore the previous fire-and-forget behavior for every create.
+DEFAULT_CREATE_WAIT_MS = int(os.environ.get("THINGS_MCP_CREATE_WAIT_MS", "1500"))
 MAX_CREATE_WAIT_MS = 30000
 _POLL_INITIAL_SECONDS = 0.05
 _POLL_MAX_SECONDS = 0.2
