@@ -2,6 +2,7 @@ from typing import List
 import json
 import logging
 import os
+import platform
 import re
 import subprocess
 import time
@@ -1239,6 +1240,14 @@ async def health(request):
             "status": "ok" if running and wal_age is not None else "degraded",
             "things_running": running,
             "database_wal_age_seconds": wal_age,
+            # Reading the Things database needs macOS privacy approval, which is
+            # granted against the interpreter's path -- and that path usually
+            # contains its version. An interpreter upgrade therefore revokes the
+            # approval by moving the binary, and the server then hangs on startup
+            # rather than failing. Reporting the version makes that drift visible
+            # before it bites. The version alone is published, not the path, since
+            # this endpoint is unauthenticated.
+            "python_version": platform.python_version(),
             "last_write_dispatch": {
                 "at": (
                     datetime.fromtimestamp(dispatch["at"]).isoformat()
