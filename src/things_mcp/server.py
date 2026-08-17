@@ -8,16 +8,12 @@ import things
 from fastmcp import FastMCP
 from fastmcp.tools.tool import ToolResult
 from .formatters import format_todo, format_project, format_area, format_tag, format_heading
+from .auth import build_auth
 from . import url_scheme
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# Transport configuration via environment variables
-TRANSPORT = os.environ.get("THINGS_MCP_TRANSPORT", "stdio")  # "stdio" or "http"
-HTTP_HOST = os.environ.get("THINGS_MCP_HOST", "127.0.0.1")
-HTTP_PORT = int(os.environ.get("THINGS_MCP_PORT", "8000"))
 
 # Initialize FastMCP server
 mcp = FastMCP("Things")
@@ -916,8 +912,16 @@ async def search_items(query: str) -> str:
 
 def main():
     """Main entry point for the Things MCP server."""
-    if TRANSPORT == "http":
-        mcp.run(transport="http", host=HTTP_HOST, port=HTTP_PORT)
+    # Read transport settings here rather than at import time so that tests and
+    # embedders can set the environment before calling main().
+    transport = os.environ.get("THINGS_MCP_TRANSPORT", "stdio")
+    if transport == "http":
+        host = os.environ.get("THINGS_MCP_HOST", "127.0.0.1")
+        port = int(os.environ.get("THINGS_MCP_PORT", "8000"))
+        # Authentication applies to the HTTP transport only; stdio inherits its
+        # security from local execution.
+        mcp.auth = build_auth()
+        mcp.run(transport="http", host=host, port=port)
     else:
         mcp.run()
 
