@@ -85,6 +85,7 @@ Two behaviors found by testing, both of which the tool now enforces or documents
 7cc1935  make the create confirmation wait configurable
 02dd475  bound the ID lookup by creation date, not by backlog size
 2a6b02f  note the one case ID matching cannot disambiguate
+dcfe464  let add_project build a project's structure with headings
 ```
 
 ## Group 2 — HTTP transport, authentication, and hosting
