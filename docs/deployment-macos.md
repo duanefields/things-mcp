@@ -195,6 +195,33 @@ grace period of two or three intervals.
 Every run is logged, not just failures, so the log doubles as a record of how fresh the database has
 been staying.
 
+## Deploying by pushing
+
+`scripts/self-update.sh` pulls the tracked branch, syncs dependencies if they moved, and restarts
+the service — so a push is a deploy and the host needs no attention. Configure it in
+`~/.things-mcp/update.env`:
+
+```bash
+REPO_DIR=/Users/you/Code/things-mcp
+BRANCH=main
+LAUNCH_LABEL=com.example.things-mcp   # omit to skip the restart
+PING_URL=https://hc-ping.com/a-different-uuid
+```
+
+```cron
+*/15 * * * * /Users/you/Code/things-mcp/scripts/self-update.sh >> /Users/you/.things-mcp/update.log 2>&1
+```
+
+It exits immediately when the branch has not moved, so a short interval is cheap, and it takes a
+lock so a slow run cannot overlap the next. It leaves the checkout alone if the fetch fails or if
+tracked files have local modifications — better to skip a deploy than to half-apply one or discard
+someone's debugging.
+
+One trap when setting this up: **build the virtualenv where it will finally live.** `uv` records
+absolute paths, so a venv created in one directory and then moved leaves the editable install
+pointing at the old location, and the service fails with `No module named things_mcp`. Re-run
+`uv sync` after any move.
+
 ## Checking on it
 
 ```bash
