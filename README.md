@@ -110,6 +110,7 @@ After installation:
 - `get-trash` - Get trashed todos
 
 ### Basic Operations
+- `add-todos` - Create several todos at once, preserving the order given
 - `get-todos` - Get todos, optionally filtered by project
 - `get-projects` - Get all projects
 - `get-areas` - Get all areas
@@ -180,6 +181,43 @@ These same read tools also return **structured content** alongside the human-rea
 - `checklist_items` - Replace the entire checklist with this list
 - `prepend_checklist_items` - Add these items to the top of the checklist
 - `append_checklist_items` - Add these items to the bottom of the checklist
+
+### add-todos (batch create)
+
+Creates several todos in one operation, **in the order given**.
+
+This is not only a speed optimization. Creating todos one at a time puts each new
+item at the top of the Inbox, so a sequence of single creates ends up in reverse
+order. A batch is sent as a single payload and keeps the order you supply, in the
+Inbox and in projects alike. (Projects happen to append rather than prepend, so
+sequential creates look correct there — the Inbox is where it bites.)
+
+It is also much faster, because one confirmation wait covers the whole batch
+rather than one per item. Twenty todos resolve in roughly the time a single
+create takes.
+
+- `todos` (required) - List of objects, in the order they should appear. Each
+  needs a `title` and may include `notes`, `when`, `deadline`, `tags`,
+  `checklist_items`, `list_id`, `list_title`, `heading`, `heading_id`.
+- `list_id` / `list_title` / `heading` / `heading_id` - Defaults applied to every
+  todo; a value on an individual todo wins.
+- `wait_ms` - See below.
+
+### Returned IDs (add-todo, add-todos, add-project)
+
+Create tools return the new item's ID in their structured content, so it can be
+fed straight into `update-todo`, `show-item`, `bulk-update-todos`, or used as the
+`list_id` of a follow-up create. Without this, the only way to act on something
+you just made was to search for it by title.
+
+The Things URL scheme accepts no caller-supplied ID and reports nothing back, so
+the ID is found by watching the database for the new rows. That takes roughly
+half a second.
+
+- `wait_ms` - How long to wait for the ID. Omit for the default (1500ms), or pass
+  `0` to return immediately with a null ID when you do not need it.
+- `id_resolved` - False means the lookup timed out, **not** that the write failed.
+  The item was still created; do not retry.
 
 ### bulk-update-todos
 Applies the same change to every todo in `ids` in a single operation. Requires the Things auth token to be enabled (Things → Settings → General → Enable Things URLs → Manage); the server reads it automatically.

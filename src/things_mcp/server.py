@@ -5,8 +5,10 @@ import os
 import re
 import subprocess
 import time
+from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
+import anyio
 import things
 from fastmcp import FastMCP
 from fastmcp.tools.tool import ToolResult
@@ -581,6 +583,118 @@ async def get_recent(period: str, limit: int = None, offset: int = 0) -> ToolRes
     todos = things.last(period, include_items=True)
     return _paginate_result(todos, format_todo, limit, offset, f"No items found in the last {period}")
 
+# --- Creation and ID confirmation -------------------------------------------
+#
+# The Things URL scheme accepts no caller-supplied ID and returns nothing, so a
+# create cannot report the new item's ID synchronously. These helpers dispatch,
+# then watch the database until the new rows appear.
+#
+# Matching is by identity, not by timestamp: the UUIDs of any existing items with
+# the same titles are recorded first, and only UUIDs that were not present before
+# are considered new. The `created` column has one-second resolution, which is too
+# coarse for a write that lands in roughly half that time.
+
+DEFAULT_CREATE_WAIT_MS = 1500
+MAX_CREATE_WAIT_MS = 30000
+_POLL_INITIAL_SECONDS = 0.05
+_POLL_MAX_SECONDS = 0.2
+
+
+def _validate_wait_ms(wait_ms):
+    """Return an error string if wait_ms is unusable, else None."""
+    if wait_ms is None:
+        return None
+    if not isinstance(wait_ms, int) or isinstance(wait_ms, bool):
+        return "wait_ms must be an integer number of milliseconds"
+    if wait_ms < 0:
+        return "wait_ms must be 0 or greater"
+    if wait_ms > MAX_CREATE_WAIT_MS:
+        return f"wait_ms must be {MAX_CREATE_WAIT_MS} or less"
+    return None
+
+
+def _tasks_of(kind):
+    """Candidate items a create could have produced.
+
+    Restricted to incomplete items, which a newly created one always is. This is
+    not merely an optimization: including every status pulls in the whole
+    logbook, which on a mature database is tens of thousands of rows and takes
+    longer to read than the entire confirmation budget.
+    """
+    if kind == "project":
+        return things.projects()
+    return things.tasks(type="to-do", status="incomplete")
+
+
+def _existing_ids(kind, titles):
+    wanted = set(titles)
+    return {t["uuid"] for t in _tasks_of(kind) if t.get("title") in wanted}
+
+
+async def _resolve_created(kind, titles, existing, wait_ms):
+    """Wait for newly created items and return their IDs, aligned to `titles`.
+
+    Any position that cannot be resolved within the budget comes back as None. A
+    null ID means the confirmation timed out, not that the write failed -- the
+    item has almost certainly been created.
+    """
+    if wait_ms <= 0:
+        return [None] * len(titles)
+
+    needed = Counter(titles)
+    deadline = time.monotonic() + wait_ms / 1000
+    delay = _POLL_INITIAL_SECONDS
+    found = {}
+
+    while True:
+        buckets = defaultdict(list)
+        for task in _tasks_of(kind):
+            title = task.get("title")
+            if title in needed and task["uuid"] not in existing:
+                buckets[title].append(task)
+        # Within a title, order by list position so duplicate titles map to the
+        # positions they were requested in.
+        found = {
+            title: sorted(items, key=lambda t: (t.get("index") is None, t.get("index")))
+            for title, items in buckets.items()
+        }
+        if all(len(found.get(t, [])) >= n for t, n in needed.items()):
+            break
+        # A scan is not free, so leave room for one before sleeping again.
+        if time.monotonic() + delay >= deadline:
+            break
+        await anyio.sleep(delay)
+        delay = min(delay * 1.5, _POLL_MAX_SECONDS)
+
+    remaining = {title: list(items) for title, items in found.items()}
+    resolved = []
+    for title in titles:
+        items = remaining.get(title) or []
+        resolved.append(items.pop(0)["uuid"] if items else None)
+    return resolved
+
+
+def _created_result(kind, title, item_id, wait_ms):
+    """Human text plus structured content for a single create."""
+    if item_id:
+        text = f"Created new {kind}: {title} (id: {item_id})"
+    elif wait_ms <= 0:
+        text = f"Created new {kind}: {title} (id not requested; wait_ms=0)"
+    else:
+        text = (
+            f"Created new {kind}: {title} (id unresolved after {wait_ms}ms; "
+            "the item was almost certainly created)"
+        )
+    return ToolResult(
+        content=text,
+        structured_content={
+            "id": item_id,
+            "id_resolved": item_id is not None,
+            "title": title,
+        },
+    )
+
+
 # Things URL Scheme tools
 @mcp.tool
 async def add_todo(
@@ -593,9 +707,18 @@ async def add_todo(
     list_id: str = None,
     list_title: str = None,
     heading: str = None,
-    heading_id: str = None
-) -> str:
-    """Create a new todo in Things
+    heading_id: str = None,
+    wait_ms: int = None
+):
+    """Create a new todo in Things, returning its ID.
+
+    Returns structured content `{id, id_resolved, title}`. Pass that `id` to
+    update-todo, show-item, or as heading-id, and use it as list-id only if the
+    new item is a project. If `id_resolved` is false the todo was still created;
+    only the ID lookup timed out, so do not retry the creation.
+
+    To create several todos at once, prefer add-todos. It is faster and, unlike
+    repeated calls to this tool, preserves the order you supply them in.
 
     Args:
         title: Title of the todo
@@ -609,7 +732,15 @@ async def add_todo(
         list_title: Title of project/area to add to
         heading: Heading title to add under
         heading_id: Heading ID to add under (takes precedence over heading)
+        wait_ms: How long to wait for the new ID, in milliseconds. Omit for the
+            default (1500). Pass 0 to return immediately with a null ID, which is
+            worth doing when the ID is not needed.
     """
+    err = _validate_wait_ms(wait_ms)
+    if err:
+        return _error_result(err)
+    budget = DEFAULT_CREATE_WAIT_MS if wait_ms is None else wait_ms
+
     url = url_scheme.add_todo(
         title=title,
         notes=notes,
@@ -622,8 +753,126 @@ async def add_todo(
         heading=heading,
         heading_id=heading_id
     )
+    existing = _existing_ids("to-do", [title]) if budget > 0 else set()
     url_scheme.execute_url(url)
-    return f"Created new todo: {title}"
+    todo_id = (await _resolve_created("to-do", [title], existing, budget))[0]
+    return _created_result("todo", title, todo_id, budget)
+
+@mcp.tool
+async def add_todos(
+    todos: List[dict],
+    list_id: str = None,
+    list_title: str = None,
+    heading: str = None,
+    heading_id: str = None,
+    wait_ms: int = None
+):
+    """Create several todos at once, in the order given.
+
+    Prefer this over repeated add-todo calls whenever creating more than one
+    todo. Repeated single creates land in the Inbox in reverse order, because
+    each new item is inserted at the top; this tool sends them as one batch and
+    the order you supply is the order they appear. It is also far faster, since
+    all the IDs resolve together rather than one wait per item.
+
+    Returns structured content `{items, count, resolved}`, where each entry is
+    `{title, id, id_resolved}` in the order supplied. Pass those ids to
+    update-todo, bulk-update-todos, or show-item.
+
+    Args:
+        todos: The todos to create, in the order they should appear. Each is an
+            object with a required `title` and any of: `notes`, `when`,
+            `deadline`, `tags` (list of strings), `checklist_items` (list of
+            strings), `list_id`, `list_title`, `heading`, `heading_id`. Per-todo
+            values win over the defaults below.
+        list_id: Default project/area ID for every todo
+        list_title: Default project/area title for every todo
+        heading: Default heading title for every todo
+        heading_id: Default heading ID for every todo (takes precedence over heading)
+        wait_ms: How long to wait for the new IDs, in milliseconds. Omit for the
+            default (1500). Pass 0 to return immediately with null IDs. One wait
+            covers the whole batch, not one per item.
+    """
+    err = _validate_wait_ms(wait_ms)
+    if err:
+        return _error_result(err)
+    if not todos:
+        return _error_result("No todos to create — pass at least one.")
+    budget = DEFAULT_CREATE_WAIT_MS if wait_ms is None else wait_ms
+
+    # snake_case tool arguments to the hyphenated names the URL scheme expects
+    PER_TODO = {
+        "notes": "notes",
+        "when": "when",
+        "deadline": "deadline",
+        "tags": "tags",
+        "checklist_items": "checklist-items",
+        "list_id": "list-id",
+        "list_title": "list",
+        "heading": "heading",
+        "heading_id": "heading-id",
+    }
+
+    payload = []
+    titles = []
+    for position, todo in enumerate(todos, 1):
+        if not isinstance(todo, dict):
+            return _error_result(f"Todo {position} must be an object with a title.")
+        title = todo.get("title")
+        if not title:
+            return _error_result(f"Todo {position} is missing a title.")
+
+        attributes = {"title": title}
+        if list_id is not None:
+            attributes["list-id"] = list_id
+        elif list_title is not None:
+            attributes["list"] = list_title
+        if heading_id is not None:
+            attributes["heading-id"] = heading_id
+        elif heading is not None:
+            attributes["heading"] = heading
+
+        unknown = set(todo) - set(PER_TODO) - {"title"}
+        if unknown:
+            return _error_result(
+                f"Todo {position} has unsupported field(s): {', '.join(sorted(unknown))}"
+            )
+        for key, attr in PER_TODO.items():
+            if todo.get(key) is not None:
+                attributes[attr] = todo[key]
+        # list_id and list_title are mutually exclusive; an explicit id wins.
+        if "list-id" in attributes and todo.get("list_title") is not None \
+                and todo.get("list_id") is None:
+            attributes.pop("list-id")
+
+        payload.append({"type": "to-do", "attributes": attributes})
+        titles.append(title)
+
+    existing = _existing_ids("to-do", titles) if budget > 0 else set()
+    url_scheme.execute_url(url_scheme.json_command(payload, auth_token=things.token()))
+    ids = await _resolve_created("to-do", titles, existing, budget)
+
+    items = [
+        {"title": title, "id": item_id, "id_resolved": item_id is not None}
+        for title, item_id in zip(titles, ids)
+    ]
+    resolved = sum(1 for i in items if i["id_resolved"])
+
+    lines = [f"Created {len(items)} todos in the order given:"]
+    lines += [
+        f"  {n}. {i['title']}" + (f" (id: {i['id']})" if i["id"] else " (id unresolved)")
+        for n, i in enumerate(items, 1)
+    ]
+    if budget > 0 and resolved < len(items):
+        lines.append(
+            f"{len(items) - resolved} ID(s) unresolved after {budget}ms; "
+            "those todos were still created."
+        )
+    return ToolResult(
+        content="\n".join(lines),
+        structured_content={"items": items, "count": len(items), "resolved": resolved},
+    )
+
 
 @mcp.tool
 async def add_area(title: str) -> str:
@@ -674,9 +923,15 @@ async def add_project(
     tags: List[str] = None,
     area_id: str = None,
     area_title: str = None,
-    todos: List[str] = None
-) -> str:
-    """Create a new project in Things
+    todos: List[str] = None,
+    wait_ms: int = None
+):
+    """Create a new project in Things, returning its ID.
+
+    Returns structured content `{id, id_resolved, title}`. Pass that `id` as
+    list-id to add-todo or add-todos to file work under this project, or to
+    update-project and show-item. If `id_resolved` is false the project was still
+    created; only the ID lookup timed out, so do not retry the creation.
 
     Args:
         title: Title of the project
@@ -687,8 +942,15 @@ async def add_project(
         tags: Tags to apply to the project
         area_id: ID of area to add to
         area_title: Title of area to add to
-        todos: Initial todos to create in the project
+        todos: Initial todos to create in the project, kept in the order given
+        wait_ms: How long to wait for the new ID, in milliseconds. Omit for the
+            default (1500). Pass 0 to return immediately with a null ID.
     """
+    err = _validate_wait_ms(wait_ms)
+    if err:
+        return _error_result(err)
+    budget = DEFAULT_CREATE_WAIT_MS if wait_ms is None else wait_ms
+
     url = url_scheme.add_project(
         title=title,
         notes=notes,
@@ -699,8 +961,10 @@ async def add_project(
         area_title=area_title,
         todos=todos
     )
+    existing = _existing_ids("project", [title]) if budget > 0 else set()
     url_scheme.execute_url(url)
-    return f"Created new project: {title}"
+    project_id = (await _resolve_created("project", [title], existing, budget))[0]
+    return _created_result("project", title, project_id, budget)
 
 @mcp.tool
 async def update_todo(
