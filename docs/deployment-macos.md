@@ -123,6 +123,35 @@ only `3.12` permits exactly that upgrade.
 `GET /health` reports `python_version` so the change is visible before it bites. Watch it, and
 re-grant Full Disk Access after any interpreter upgrade.
 
+## A second prompt, for controlling Things
+
+Most writes go out through the URL scheme, which needs no special permission. Areas are the
+exception: Things has no URL commands for them, so `add_area` and `update_area` drive the app with
+Apple Events instead. That is a separate protection from file access, and it produces its own
+dialog the first time either tool runs:
+
+> "python3.12" wants access to control "Things".
+
+Until it is answered the tool call hangs, the same way startup does. Everything else keeps working,
+so this can lie dormant for a long time and then surface the first time someone creates an area.
+
+Trigger it deliberately while you are at the machine — call `add_area` once — rather than letting it
+ambush a remote client later.
+
+Unlike Full Disk Access, this one **cannot be granted ahead of time**. System Settings → Privacy &
+Security → Automation only lets you toggle pairs macOS has already recorded, so the prompt has to
+happen at least once. It does persist across restarts afterwards, ad-hoc signed interpreter and all.
+
+If a grant ever refuses to stick, the workaround is to give the binary a stable identity, since
+approvals bind to a code-signing identity and these interpreters ship without one:
+
+```bash
+codesign --force --sign - --identifier com.example.things-mcp-python \
+  "$(python3 -c "import os;print(os.path.realpath('.venv/bin/python'))")"
+```
+
+Re-grant afterwards. Note this is undone by an interpreter upgrade, like the approval itself.
+
 ## Checking on it
 
 ```bash
