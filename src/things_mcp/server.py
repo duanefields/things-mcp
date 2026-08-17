@@ -1459,7 +1459,15 @@ def main():
         # Authentication applies to the HTTP transport only; stdio inherits its
         # security from local execution.
         mcp.auth = build_auth()
-        mcp.run(transport="http", host=host, port=port)
+        # Stateless: a fresh transport per request, so there is no session for a
+        # client to lose. Remote clients dial from a pool of addresses, and a
+        # request arriving from a different address than the one that opened the
+        # session is rejected with a 400 -- seen in practice against a Claude
+        # connector, which recovered by reconnecting until eventually it did not.
+        # Nothing here needs session state: no subscriptions, no server-initiated
+        # messages. Set THINGS_MCP_STATELESS=false to restore session handling.
+        stateless = os.environ.get("THINGS_MCP_STATELESS", "true").strip().lower() != "false"
+        mcp.run(transport="http", host=host, port=port, stateless_http=stateless)
     else:
         mcp.run()
 

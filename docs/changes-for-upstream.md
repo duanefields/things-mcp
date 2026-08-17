@@ -109,6 +109,17 @@ re-authorize. The interstitial mirrors the shape FastMCP's own `OAuthProxy` uses
 
 Verified end to end against a Claude custom connector.
 
+### Stateless HTTP by default
+
+The HTTP transport now runs stateless -- a fresh transport per request -- with
+`THINGS_MCP_STATELESS=false` to restore session handling.
+
+Sessions are the wrong model for a remote client. Requests arrive from a pool of addresses, and one
+landing from a different address than the one that opened the session is rejected with a `400`.
+Observed against a Claude connector: it recovered by reconnecting, repeatedly, until it stopped
+recovering and every tool call failed. Nothing in this server needs session state -- no
+subscriptions, no server-initiated messages.
+
 ### Health endpoint
 
 `GET /health`, unauthenticated, reporting whether Things 3 is running, how long ago the database was
