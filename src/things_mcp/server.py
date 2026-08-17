@@ -616,17 +616,29 @@ def _validate_wait_ms(wait_ms):
     return None
 
 
+# Candidates are limited to items created recently. The window only has to cover
+# the moment between dispatch and confirmation, so a day is enormously generous;
+# things.py's filter is day-granular, which is why it is not tighter. What matters
+# is that the scan is then bounded by how many items were created today rather
+# than by the size of the backlog, so it stays fast for someone with thousands of
+# open tasks.
+_CREATE_LOOKBACK = "1d"
+
+
 def _tasks_of(kind):
     """Candidate items a create could have produced.
 
-    Restricted to incomplete items, which a newly created one always is. This is
-    not merely an optimization: including every status pulls in the whole
-    logbook, which on a mature database is tens of thousands of rows and takes
-    longer to read than the entire confirmation budget.
+    Restricted to incomplete items created within the lookback window. Both
+    filters are correctness-preserving -- a newly created item is always
+    incomplete and always recent -- and both matter for speed. Without the status
+    filter the query pulls the entire logbook, tens of thousands of rows on a
+    mature database, which alone exceeds the confirmation budget.
     """
-    if kind == "project":
-        return things.projects()
-    return things.tasks(type="to-do", status="incomplete")
+    return things.tasks(
+        type="project" if kind == "project" else "to-do",
+        status="incomplete",
+        last=_CREATE_LOOKBACK,
+    )
 
 
 def _existing_ids(kind, titles):

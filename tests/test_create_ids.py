@@ -247,6 +247,35 @@ class TestAddTodos:
         assert len(calls) == 0, "everything was already present; no waiting needed"
 
 
+class TestCandidateQuery:
+    """The scan must stay bounded by recent activity, not by backlog size.
+
+    Dropping either filter is a real performance bug: without `status` the query
+    pulls the whole logbook, and without `last` it scales with how many open
+    tasks the user has.
+    """
+
+    def test_todo_query_is_filtered_by_status_and_recency(self):
+        with patch.object(server.things, "tasks", return_value=[]) as tasks:
+            server._tasks_of("to-do")
+        assert tasks.call_args.kwargs == {
+            "type": "to-do",
+            "status": "incomplete",
+            "last": server._CREATE_LOOKBACK,
+        }
+
+    def test_project_query_is_filtered_the_same_way(self):
+        with patch.object(server.things, "tasks", return_value=[]) as tasks:
+            server._tasks_of("project")
+        assert tasks.call_args.kwargs["type"] == "project"
+        assert tasks.call_args.kwargs["status"] == "incomplete"
+        assert tasks.call_args.kwargs["last"] == server._CREATE_LOOKBACK
+
+    def test_lookback_comfortably_exceeds_the_confirmation_budget(self):
+        # The window only has to span dispatch-to-confirmation.
+        assert server._CREATE_LOOKBACK.endswith(("d", "w", "y"))
+
+
 class TestDefaults:
     def test_default_wait_matches_documented_value(self):
         assert DEFAULT_CREATE_WAIT_MS == 1500
