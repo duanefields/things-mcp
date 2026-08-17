@@ -129,7 +129,7 @@ After installation:
 
 ### Things URL Scheme Operations
 - `add-todo` - Create a new todo
-- `add-project` - Create a new project
+- `add-project` - Create a new project, optionally with headings and todos in order (`items`)
 - `add-area` - Create a new Area (via AppleScript; Things URL scheme has no add-area command)
 - `update-area` - Update an existing Area: rename or set tags (via AppleScript)
 - `update-todo` - Update an existing todo
@@ -202,6 +202,39 @@ create takes.
 - `list_id` / `list_title` / `heading` / `heading_id` - Defaults applied to every
   todo; a value on an individual todo wins.
 - `wait_ms` - See below.
+
+### add-project with headings (`items`)
+
+`items` builds a project's structure — headings and todos, in the order given — in one call:
+
+```json
+[
+  {"type": "heading", "title": "Design"},
+  {"type": "todo", "title": "Wireframes", "when": "today"},
+  {"type": "heading", "title": "Build"},
+  {"type": "todo", "title": "Scaffold API", "notes": "FastAPI"}
+]
+```
+
+**This is the only way to create a heading.** Things cannot add one to a project that
+already exists, so a project's headings have to be set up as it is created. Returns the
+id of the project and of every item, in the order supplied, so a heading id can be passed
+straight to `add-todos` as `heading_id`.
+
+A todo here may carry `notes`, `when`, `deadline` and `tags`. A heading takes only a
+title.
+
+Two limitations worth knowing:
+
+- **No `checklist_items`.** Things rejects the entire project payload if a nested todo
+  carries them — and does it by showing a modal dialog rather than failing quietly. The
+  tool refuses these before dispatching. Create the project first, then use `add-todos`
+  with the returned heading id.
+- **Tags must already exist** in Things, or they are silently dropped. This is general
+  Things behavior, not specific to `items`.
+
+Use `todos` instead when the project needs no headings; it takes a plain list of titles.
+Passing both is an error.
 
 ### Returned IDs (add-todo, add-todos, add-project)
 

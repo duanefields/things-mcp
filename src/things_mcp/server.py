@@ -606,6 +606,28 @@ async def get_recent(period: str, limit: int = None, offset: int = 0) -> ToolRes
 # restore the previous fire-and-forget behavior for every create.
 DEFAULT_CREATE_WAIT_MS = int(os.environ.get("THINGS_MCP_CREATE_WAIT_MS", "1500"))
 MAX_CREATE_WAIT_MS = 30000
+
+# snake_case tool arguments to the hyphenated names the URL scheme expects.
+_TODO_ATTRS = {
+    "notes": "notes",
+    "when": "when",
+    "deadline": "deadline",
+    "tags": "tags",
+    "checklist_items": "checklist-items",
+    "list_id": "list-id",
+    "list_title": "list",
+    "heading": "heading",
+    "heading_id": "heading-id",
+}
+
+# What a to-do nested inside a project create may carry. Checklist items are
+# absent deliberately: Things rejects the entire payload if one appears there,
+# and does it by showing the user a modal error dialog rather than failing
+# quietly, so this has to be caught before dispatch rather than after.
+_NESTED_TODO_ATTRS = {
+    k: v for k, v in _TODO_ATTRS.items()
+    if k in ("notes", "when", "deadline", "tags")
+}
 _POLL_INITIAL_SECONDS = 0.05
 _POLL_MAX_SECONDS = 0.2
 
@@ -694,6 +716,104 @@ async def _resolve_created(kind, titles, existing, wait_ms):
         items = remaining.get(title) or []
         resolved.append(items.pop(0)["uuid"] if items else None)
     return resolved
+
+
+def _build_project_items(items):
+    """Turn the `items` argument into a things:///json items array.
+
+    Returns (payload_items, plan, error). `plan` is the flat sequence of
+    (type, title) actually requested, used afterwards to match the created rows
+    back to what was asked for.
+    """
+    payload, plan = [], []
+    for position, item in enumerate(items, 1):
+        where = f"Item {position}"
+        if not isinstance(item, dict):
+            return None, None, f"{where} must be an object with a type and a title."
+
+        kind = (item.get("type") or "").strip().lower()
+        if kind in ("to-do", "task"):
+            kind = "todo"
+        if kind not in ("heading", "todo"):
+            return None, None, (
+                f"{where} has type {item.get('type')!r}; expected 'heading' or 'todo'."
+            )
+
+        title = item.get("title")
+        if not title:
+            return None, None, f"{where} is missing a title."
+
+        if kind == "heading":
+            extra = set(item) - {"type", "title"}
+            if extra:
+                return None, None, (
+                    f"{where} is a heading and cannot take {', '.join(sorted(extra))}. "
+                    "Headings carry only a title."
+                )
+            payload.append({"type": "heading", "attributes": {"title": title}})
+        else:
+            unknown = set(item) - set(_NESTED_TODO_ATTRS) - {"type", "title"}
+            if unknown:
+                hint = ""
+                if "checklist_items" in unknown:
+                    hint = (
+                        " Things rejects a whole project payload containing checklist "
+                        "items on a nested todo; create the project first, then use "
+                        "add-todos with the returned heading id."
+                    )
+                return None, None, (
+                    f"{where} has unsupported field(s): {', '.join(sorted(unknown))}.{hint}"
+                )
+            attributes = {"title": title}
+            for key, attr in _NESTED_TODO_ATTRS.items():
+                if item.get(key) is not None:
+                    attributes[attr] = item[key]
+            payload.append({"type": "to-do", "attributes": attributes})
+
+        plan.append((kind, title))
+    return payload, plan, None
+
+
+def _by_index(rows):
+    return sorted(rows, key=lambda r: (r.get("index") is None, r.get("index")))
+
+
+def _read_project_contents(project_id):
+    """Headings and todos inside a project, in the order Things displays them.
+
+    Headings are indexed within the project, but a todo's index is relative to
+    its own heading -- the first todo under each heading is index 0. So the
+    display order is rebuilt by walking the headings and taking each one's todos,
+    rather than by sorting everything on `index` together.
+    """
+    todos_by_heading = defaultdict(list)
+    for todo in things.todos(project=project_id) or []:
+        todos_by_heading[todo.get("heading")].append(todo)
+
+    # Todos placed before any heading.
+    rows = [("todo", t) for t in _by_index(todos_by_heading.get(None, []))]
+    for heading in _by_index(things.tasks(type="heading", project=project_id) or []):
+        rows.append(("heading", heading))
+        rows.extend(("todo", t) for t in _by_index(todos_by_heading.get(heading["uuid"], [])))
+    return rows
+
+
+async def _await_project_contents(project_id, expected, wait_ms):
+    """Wait for a new project's items to be written, then return them.
+
+    The project row appears before its contents do, so reading immediately finds
+    a half-built project and leaves most items unresolved.
+    """
+    if wait_ms <= 0:
+        return []
+    deadline = time.monotonic() + wait_ms / 1000
+    delay = _POLL_INITIAL_SECONDS
+    rows = _read_project_contents(project_id)
+    while len(rows) < expected and time.monotonic() + delay < deadline:
+        await anyio.sleep(delay)
+        delay = min(delay * 1.5, _POLL_MAX_SECONDS)
+        rows = _read_project_contents(project_id)
+    return rows
 
 
 def _created_result(kind, title, item_id, wait_ms):
@@ -822,18 +942,7 @@ async def add_todos(
         return _error_result("No todos to create — pass at least one.")
     budget = DEFAULT_CREATE_WAIT_MS if wait_ms is None else wait_ms
 
-    # snake_case tool arguments to the hyphenated names the URL scheme expects
-    PER_TODO = {
-        "notes": "notes",
-        "when": "when",
-        "deadline": "deadline",
-        "tags": "tags",
-        "checklist_items": "checklist-items",
-        "list_id": "list-id",
-        "list_title": "list",
-        "heading": "heading",
-        "heading_id": "heading-id",
-    }
+    PER_TODO = _TODO_ATTRS
 
     payload = []
     titles = []
@@ -946,14 +1055,20 @@ async def add_project(
     area_id: str = None,
     area_title: str = None,
     todos: List[str] = None,
+    items: List[dict] = None,
     wait_ms: int = None
 ):
     """Create a new project in Things, returning its ID.
 
-    Returns structured content `{id, id_resolved, title}`. Pass that `id` as
-    list-id to add-todo or add-todos to file work under this project, or to
-    update-project and show-item. If `id_resolved` is false the project was still
-    created; only the ID lookup timed out, so do not retry the creation.
+    Use `items` to build the project's structure -- headings and todos, in the
+    order given -- in one call. This is the only way to create a heading at all:
+    Things cannot add one to a project that already exists, so a project's
+    headings have to be set up when it is created.
+
+    Returns structured content `{id, id_resolved, title, items}`, where each
+    entry is `{type, title, id}` in the order supplied. Pass the project `id` as
+    list-id to add-todo or add-todos, a heading `id` as heading-id, and any of
+    them to update-todo or show-item.
 
     Args:
         title: Title of the project
@@ -964,7 +1079,14 @@ async def add_project(
         tags: Tags to apply to the project
         area_id: ID of area to add to
         area_title: Title of area to add to
-        todos: Initial todos to create in the project, kept in the order given
+        todos: Titles of initial todos, in order. A simpler alternative to
+            `items` when the project needs no headings.
+        items: The project's contents, in the order they should appear. Each is
+            an object with `type` ("heading" or "todo") and a `title`. A todo may
+            also carry `notes`, `when`, `deadline` and `tags`; a heading takes
+            only a title. Checklist items are not accepted here -- Things rejects
+            the whole project if one appears -- so add those afterwards with
+            add-todos, using the heading id this returns.
         wait_ms: How long to wait for the new ID, in milliseconds. Omit for the
             default (1500). Pass 0 to return immediately with a null ID.
     """
@@ -973,20 +1095,85 @@ async def add_project(
         return _error_result(err)
     budget = DEFAULT_CREATE_WAIT_MS if wait_ms is None else wait_ms
 
-    url = url_scheme.add_project(
-        title=title,
-        notes=notes,
-        when=when,
-        deadline=deadline,
-        tags=tags,
-        area_id=area_id,
-        area_title=area_title,
-        todos=todos
-    )
+    if items is not None and todos is not None:
+        return _error_result(
+            "Pass either todos or items, not both. items supersedes todos and can "
+            "additionally express headings."
+        )
+
+    plan = None
+    if items is not None:
+        if not items:
+            return _error_result("items is empty — omit it, or pass at least one entry.")
+        payload_items, plan, err = _build_project_items(items)
+        if err:
+            return _error_result(err)
+
+        attributes = {"title": title, "items": payload_items}
+        for key, value in (("notes", notes), ("when", when), ("deadline", deadline),
+                           ("tags", tags)):
+            if value is not None:
+                attributes[key] = value
+        if area_id is not None:
+            attributes["area-id"] = area_id
+        elif area_title is not None:
+            attributes["area"] = area_title
+        # The `items` array has to sit inside `attributes`; as a sibling it is
+        # ignored and the project is created empty.
+        url = url_scheme.json_command(
+            [{"type": "project", "attributes": attributes}], auth_token=things.token()
+        )
+    else:
+        url = url_scheme.add_project(
+            title=title,
+            notes=notes,
+            when=when,
+            deadline=deadline,
+            tags=tags,
+            area_id=area_id,
+            area_title=area_title,
+            todos=todos
+        )
     existing = _existing_ids("project", [title]) if budget > 0 else set()
     url_scheme.execute_url(url)
     project_id = (await _resolve_created("project", [title], existing, budget))[0]
-    return _created_result("project", title, project_id, budget)
+    if plan is None:
+        return _created_result("project", title, project_id, budget)
+
+    # With the project's own ID in hand its contents are unambiguous, so the
+    # items are read straight out of it rather than matched by title.
+    created = await _await_project_contents(project_id, len(plan), budget) if project_id else []
+    resolved = []
+    for index, (kind, item_title) in enumerate(plan):
+        row = created[index] if index < len(created) else None
+        matched = row[1]["uuid"] if row and row[0] == kind and row[1].get("title") == item_title else None
+        resolved.append({"type": kind, "title": item_title, "id": matched})
+
+    found = sum(1 for r in resolved if r["id"])
+    lines = [
+        f"Created new project: {title}"
+        + (f" (id: {project_id})" if project_id else " (id unresolved)")
+    ]
+    for entry in resolved:
+        label = "#" if entry["type"] == "heading" else "-"
+        lines.append(
+            f"  {label} {entry['title']}"
+            + (f" (id: {entry['id']})" if entry["id"] else "")
+        )
+    if project_id and found < len(resolved):
+        lines.append(
+            f"{len(resolved) - found} item id(s) unresolved; the items were still created."
+        )
+
+    return ToolResult(
+        content="\n".join(lines),
+        structured_content={
+            "id": project_id,
+            "id_resolved": project_id is not None,
+            "title": title,
+            "items": resolved,
+        },
+    )
 
 @mcp.tool
 async def update_todo(

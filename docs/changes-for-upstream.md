@@ -58,6 +58,26 @@ There is no way to reorder an existing list. Things declares a hidden
 `_private_experimental_ reorder to dos in` AppleScript command, but every invocation of it returned
 success and changed nothing, so ordering has to be established at creation time.
 
+### `add_project(items=...)`, the only way to create a heading
+
+Things has no way to add a heading to an existing project — not through the URL scheme, and
+not through AppleScript, whose dictionary has no heading class at all. A heading can only be
+created as part of a project create, nested in `attributes.items`. So a project's structure
+is fixed at the moment it is created, and before this there was no way to express it:
+`todos` took a flat list of titles.
+
+`items` accepts headings and todos interleaved, in order, and returns an id for each. Item
+ids are read out of the created project rather than matched by title, which is exact.
+
+Two behaviors found by testing, both of which the tool now enforces or documents:
+
+- A nested todo carrying `checklist-items` makes Things reject the **whole** project, and
+  it reports this with a modal dialog rather than a silent failure. Since a tool sits
+  between a model and that payload, this is validated before dispatch — the difference
+  between an error in the transcript and a dialog on an unattended machine's screen.
+- Tags that do not already exist are silently dropped. General Things behavior, but worth
+  knowing when a model invents tag names.
+
 ### Relevant commits
 
 ```text
@@ -118,10 +138,11 @@ f24354b  add a self-update script for a deployed host
 
 ## Testing
 
-247 tests pass, 73 of them new. The existing suite is untouched and still green.
+273 tests pass, 99 of them new. The existing suite is untouched and still green.
 
 New tests cover the OAuth provider including its failure paths, the health endpoint, ID resolution
-including timeout and duplicate-title behavior, and batch payload construction. Note that the suite
+including timeout and duplicate-title behavior, batch payload construction, and the
+heading-relative index rule that project ordering depends on. Note that the suite
 imports tool functions directly and awaits them rather than going through the MCP protocol, so
 nothing exercises transport selection; the HTTP and auth paths were verified against a live
 deployment instead.
