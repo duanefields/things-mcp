@@ -17,3 +17,5 @@ wheels/
 *.dxt
 
 .DS_Store
+# Personal deployment notes, kept locally rather than published
+docs/remote-hosting.md
