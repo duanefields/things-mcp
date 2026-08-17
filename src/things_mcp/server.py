@@ -593,6 +593,12 @@ async def get_recent(period: str, limit: int = None, offset: int = 0) -> ToolRes
 # the same titles are recorded first, and only UUIDs that were not present before
 # are considered new. The `created` column has one-second resolution, which is too
 # coarse for a write that lands in roughly half that time.
+#
+# One case this cannot distinguish: a repeating task materializes its next
+# occurrence as a genuinely new row, so an occurrence appearing in the same
+# instant as a create with an identical title could be picked up instead. It
+# would take a title collision inside a half-second window, and the cost is a
+# wrong ID rather than a wrong write, so it is left unhandled.
 
 # Confirming a create costs roughly half a second. That is worth it to get a
 # usable ID back, but a deployment that never needs IDs can set this to 0 and
