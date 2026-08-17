@@ -162,7 +162,7 @@ HEALTH_URL=http://127.0.0.1:18789/health
 PING_URL=https://hc-ping.com/your-uuid-here
 EXPECTED_PYTHON=/Users/you/.local/share/uv/python/cpython-3.12.13-.../bin/python3.12
 VENV_PYTHON=/Users/you/Code/things-mcp/.venv/bin/python
-MAX_WAL_AGE=43200
+MAX_WAL_AGE=0   # staleness check off; see below
 ```
 
 ```cron
@@ -181,9 +181,12 @@ It reports failure on three things:
   without this the first symptom is the service hanging on its next restart. Re-grant Full Disk
   Access and update `EXPECTED_PYTHON` together.
 
-It also flags a database that has not been written to in `MAX_WAL_AGE` seconds. Keep this generous.
-The log is only touched when something changes, so a quiet night is not a fault; the point is to
-catch sync being genuinely dead.
+It can also flag a database that has not been written to recently, but this is **off by default**
+(`MAX_WAL_AGE=0`) and deserves care before you enable it. The write-ahead log is only touched when
+something changes, so its age cannot tell "sync is dead" apart from "nobody has changed anything" --
+a quiet weekend looks exactly like a broken sync. The age is reported on every run regardless, so
+let the log show what an ordinary idle stretch looks like for you, then pick a threshold no genuine
+absence would reach.
 
 An outward ping is what makes the whole machine being gone detectable. A monitor running on the same
 host cannot report its own host's death. Set the expected period to match the cron interval, with a

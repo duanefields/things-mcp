@@ -28,10 +28,13 @@ HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8000/health}"
 PING_URL="${PING_URL:-}"
 EXPECTED_PYTHON="${EXPECTED_PYTHON:-}"
 VENV_PYTHON="${VENV_PYTHON:-}"
-# Generous by default. The write-ahead log is only touched when something
-# changes, so a quiet night is not a fault -- this is meant to catch sync being
-# genuinely dead, not inactivity.
-MAX_WAL_AGE="${MAX_WAL_AGE:-43200}"
+# Off by default, and think before turning it on. The write-ahead log is only
+# touched when something changes, so its age cannot distinguish "sync is dead"
+# from "nobody has changed anything" -- a quiet weekend looks identical to a
+# broken sync. Set a threshold in seconds only once the logged wal_age values
+# show what an ordinary idle stretch looks like for you, and pick a number no
+# genuine absence would reach. Age is reported on every run either way.
+MAX_WAL_AGE="${MAX_WAL_AGE:-0}"
 
 problems=()
 report=""
@@ -63,7 +66,7 @@ print(d.get("status"), d.get("things_running"), d.get("database_wal_age_seconds"
   [[ "$status" != "ok" ]] && problems+=("health status is '$status'")
   [[ "$running" != "True" && "$running" != "true" ]] && problems+=("Things 3 is not running; writes will vanish")
 
-  if [[ "$wal" != "None" && "$wal" != "?" ]]; then
+  if (( MAX_WAL_AGE > 0 )) && [[ "$wal" != "None" && "$wal" != "?" ]]; then
     if (( $(printf '%.0f' "$wal") > MAX_WAL_AGE )); then
       problems+=("database untouched for ${wal}s (limit ${MAX_WAL_AGE}s); sync may be dead")
     fi
