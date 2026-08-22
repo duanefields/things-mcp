@@ -16,7 +16,7 @@ from fastmcp.tools.tool import ToolResult
 from starlette.responses import JSONResponse
 from .formatters import (
     format_todo, format_project, format_area, format_tag, format_heading,
-    display_order,
+    display_order, upcoming_order,
 )
 from .auth import build_auth
 from .recurrence import next_occurrences
@@ -99,6 +99,40 @@ def _today_sort_key(todo):
         todo["today_index"] if todo.get("today_index") is not None else 0,
         todo["start_date"] if todo.get("start_date") is not None else "9999-99-99",
     )
+
+
+def _deadline_only_upcoming(after):
+    """Tasks the Upcoming list shows on their deadline, having no start date.
+
+    things.upcoming() is tasks(start_date="future"), so a task with a deadline
+    and no start date never matches it -- 22 rows missing on a real database,
+    including whole projects. The app treats such a task as though it were
+    scheduled on its deadline, which is the entire rule: it sorts among the
+    dated rows by todayIndex like anything else, rather than being grouped at
+    either end of the day.
+
+    The deadline is NOT copied into start_date. The task genuinely has no start
+    date, and saying otherwise would report a date Things does not hold.
+    upcoming_order falls back to the deadline for position, and `deadline_only`
+    marks why the row is here.
+
+    Deliberately not passed through filter_someday_project_tasks: a task filed
+    in a Someday project still shows here, checked in the app with a task
+    created inside one. Someday defers a start; it does not defer a deadline.
+
+    deadline_suppressed=False mirrors things.api.today(), which excludes a
+    deadline the user has dismissed. Unverified against the app -- there is no
+    suppressed deadline in the database to look at.
+    """
+    todos = []
+    for todo in (things.tasks(start_date=False, deadline=True,
+                              deadline_suppressed=False, include_items=True) or []):
+        if not todo.get('deadline') or todo['deadline'] <= after:
+            continue
+        todo = dict(todo)
+        todo['deadline_only'] = True
+        todos.append(todo)
+    return todos
 
 
 # Helper function to filter out tasks from Someday projects
@@ -258,9 +292,13 @@ async def get_upcoming(limit: int = None, offset: int = 0) -> ToolResult:
     todos += [t for t in next_occurrences() if t['start_date'] > today_iso]
     # Filter out tasks from Someday projects, then paginate
     todos = filter_someday_project_tasks(todos)
+    # A deadline with no start date is the third thing things.upcoming() misses,
+    # and it is added after the filter on purpose -- see _deadline_only_upcoming.
+    todos += _deadline_only_upcoming(today_iso)
     # Every item here is scheduled, so this is purely a sort by date. things.py
-    # orders by index, which put December 2026 ahead of August 2026.
-    todos = display_order(todos)
+    # orders by index, which put December 2026 ahead of August 2026. Upcoming
+    # sorts flatter than display_order does -- see upcoming_order.
+    todos = upcoming_order(todos)
     return _paginate_result(todos, format_todo, limit, offset, "No items found")
 
 @mcp.tool

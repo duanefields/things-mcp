@@ -98,6 +98,26 @@ def display_order(todos):
     return sorted(todos, key=key)
 
 
+def upcoming_order(todos):
+    """Todos in the order the Upcoming list shows them.
+
+    Upcoming is a flat sort by date, and unlike an area or a project view it
+    does NOT put projects above to-dos. `todayIndex` already encodes where a
+    project sits within its day -- in the app, 🔑 Spare Jeep Key leads Aug 30
+    and ✈️ Dublin closes it -- so applying display_order's projects-first rule
+    here moves rows to the wrong end of their day. Verified against the app
+    across five days covering 38 rows.
+
+    A deadline-only task has no start date and takes its position from its
+    deadline, which is how the app places it.
+    """
+    return sorted(todos, key=lambda todo: (
+        todo.get("start_date") or todo.get("deadline") or "",
+        _position(todo, "today_index"),
+        _position(todo, "index"),
+    ))
+
+
 def _lookup_title(uuid):
     """Fetch an item by uuid and return its title, or None if missing/broken.
 

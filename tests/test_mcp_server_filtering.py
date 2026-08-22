@@ -52,11 +52,13 @@ class TestMCPServerFiltering:
         assert 'Today someday task' not in result
         assert 'Today active task' in result
 
+    @patch('things_mcp.server.things.tasks')
     @pytest.mark.asyncio
     @patch('things_mcp.server.things.upcoming')
     @patch('things_mcp.server.things.projects')
-    async def test_get_upcoming_filters_someday_tasks(self, mock_projects, mock_upcoming):
+    async def test_get_upcoming_filters_someday_tasks(self, mock_projects, mock_upcoming, mock_tasks):
         """Test that get_upcoming filters out tasks from Someday projects."""
+        mock_tasks.return_value = []
         mock_upcoming.return_value = [
             {'uuid': 'task-6', 'title': 'Upcoming someday', 'project': 'someday-proj', 'type': 'to-do'},
             {'uuid': 'task-7', 'title': 'Upcoming active', 'project': 'active-proj', 'type': 'to-do'},

@@ -44,7 +44,12 @@ def repeating(mocker):
         'things_mcp.recurrence.Database',
         return_value=mocker.Mock(execute_query=lambda sql: rows),
     )
-    tasks = mocker.patch('things.tasks', side_effect=lambda uuid: _template(uuid))
+    # things.tasks serves two callers now: hydrating a template by uuid, and
+    # the deadline-only sweep in get_upcoming, which passes no uuid.
+    tasks = mocker.patch(
+        'things.tasks',
+        side_effect=lambda uuid=None, **kw: _template(uuid) if uuid else [],
+    )
 
     def schedule(date, uuid="tmpl-uuid", deadline=None, rule=None):
         rows.append({'uuid': uuid, 'start_date': date,

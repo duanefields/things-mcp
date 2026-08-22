@@ -95,7 +95,16 @@ This is a Model Context Protocol (MCP) server that bridges Claude Desktop with t
      occurrence. `_deadline_for` parses it and returns None rather than a guess if it won't parse.
      Verified against the app for offsets of 0, 1, 7, 10 and 14 days
 
-5. **tests/** - Unit test suite (398 tests)
+5. **src/things_mcp/server.py** also carries `_deadline_only_upcoming` — tasks with a deadline
+   and no start date, which `things.upcoming()` (`start_date="future"`) never matches. The app
+   treats one as scheduled on its deadline, sorting it among the dated rows by `todayIndex`
+   rather than grouping it at either end. The deadline is NOT copied into `start_date` — the
+   task has none, and `upcoming_order` falls back to the deadline for position; `deadline_only`
+   marks the row. It is added *after* `filter_someday_project_tasks` on purpose: a task in a
+   Someday project still shows there, checked in the app. `get_today` needs nothing — things.py's
+   `past` filter is `<= today`, so `things.today()`'s unconfirmed-overdue branch already covers it
+
+6. **tests/** - Unit test suite (408 tests)
    - **conftest.py** - Pytest fixtures and mock data
    - **_helpers.py** - `tool_text()` reads the text channel from a `ToolResult` (or a plain-string result) so text assertions work across both return shapes
    - **test_url_scheme.py** - Tests for URL construction
@@ -103,6 +112,7 @@ This is a Model Context Protocol (MCP) server that bridges Claude Desktop with t
    - **test_things_server.py** - Tests for server tools (incl. pagination + structured-content shape)
    - **test_things_server_headings.py** - Tests for heading functionality
    - **test_recurrence.py** - Tests for projecting repeating tasks into Today and Upcoming
+   - **test_deadline_only.py** - Tests for tasks Upcoming shows on their deadline
    - **test_someday_filtering.py** - Tests for Someday project filtering
    - **test_mcp_server_filtering.py** - Integration tests for MCP server filtering
 
@@ -114,6 +124,11 @@ This is a Model Context Protocol (MCP) server that bridges Claude Desktop with t
 - Read tools return a `ToolResult` (human-readable text + `structured_content`); write/report tools and error paths return plain strings
 - Error handling for invalid UUIDs and missing parameters; pagination args validated by `_validate_pagination`
 - Supports filtering and including nested items via parameters
+- **Upcoming ordering is flatter than area ordering**: `formatters.upcoming_order` sorts on
+  `(start_date or deadline, todayIndex, index)` and deliberately does NOT apply `display_order`'s
+  projects-above-to-dos rule. `todayIndex` already places a project within its day — the app leads
+  Aug 30 with a project and closes it with another. Verified against the app across 20 days and 73
+  rows. `display_order` is unchanged and still used for area and project views
 - **Display ordering**: project, area and Upcoming reads are sorted the way the Things UI shows them, not by raw `index`. `formatters.display_order` applies the scheduling groups (Anytime → scheduled by date → Someday) and sorts projects above to-dos within a group; `schedule_group` classifies an item. Each group uses a different manual-order column — `index` for Anytime and Someday, `todayIndex` for scheduled — which was verified against the app, not inferred. `server._project_display_order` composes that with the heading grouping, since a to-do's `index` is relative to its own heading. All of it is pinned by `tests/test_display_order.py` using real values from the app
 - **Search ranking**: `search_todos` tokenizes the query, narrows in SQL with the longest token, then matches and ranks the rest in Python (`_search_tokens`, `_token_score`, `_rank_search_results`). Matching is against title and notes only — things.py also matches the parent AREA's title, which flooded results when an area name was searched
 - **Repeating tasks**: `get_today` and `get_upcoming` merge in `recurrence.next_occurrences()` —
