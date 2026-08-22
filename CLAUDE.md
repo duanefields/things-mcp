@@ -86,6 +86,11 @@ This is a Model Context Protocol (MCP) server that bridges Claude Desktop with t
      app shows in Upcoming — verified in the app, where Copy Link on that row yields the
      template's uuid. `update_todo` against it therefore edits the repeat schedule rather than
      one occurrence, which is what editing that row in the app does too
+   - `next_occurrences(area=...)` / `(project=...)` narrows in SQL, so `format_area` and
+     `format_project` hydrate only their own templates rather than all 68 — `get_areas` formats
+     every area. An area whose only scheduled items repeat used to render with **no Upcoming
+     section at all**, which reads as "nothing is scheduled here": a stronger and more misleading
+     claim than a merely short list
    - Templates are fetched with `things.tasks(uuid=...)`, which routes to `get_task_by_uuid` —
      the one query in things.py that matches on uuid alone and so will return a template
    - **A template's `deadline` column is not a date.** Every template carries the same sentinel
@@ -104,7 +109,7 @@ This is a Model Context Protocol (MCP) server that bridges Claude Desktop with t
    Someday project still shows there, checked in the app. `get_today` needs nothing — things.py's
    `past` filter is `<= today`, so `things.today()`'s unconfirmed-overdue branch already covers it
 
-6. **tests/** - Unit test suite (408 tests)
+6. **tests/** - Unit test suite (411 tests)
    - **conftest.py** - Pytest fixtures and mock data
    - **_helpers.py** - `tool_text()` reads the text channel from a `ToolResult` (or a plain-string result) so text assertions work across both return shapes
    - **test_url_scheme.py** - Tests for URL construction

@@ -86,8 +86,11 @@ def _deadline_for(occurrence, rule):
         return None
 
 
-def next_occurrences():
+def next_occurrences(area=None, project=None):
     """The next occurrence of every live repeating task, as task dicts.
+
+    `area` or `project` narrows to templates filed directly in that container,
+    so an area or project read hydrates only its own handful rather than all 68.
 
     Each dict is what things.py would return for the template row, with
     `start_date` set to the next occurrence and `repeating` set to True so
@@ -96,8 +99,16 @@ def next_occurrences():
     Returns an empty list if the database can't be read, which is what the
     lists showed before this existed.
     """
+    sql = _NEXT_OCCURRENCE_SQL
+    parameters = ()
+    if area is not None:
+        sql += " AND area = ?"
+        parameters = (area,)
+    elif project is not None:
+        sql += " AND project = ?"
+        parameters = (project,)
     try:
-        rows = Database().execute_query(_NEXT_OCCURRENCE_SQL)
+        rows = Database().execute_query(sql, parameters)
     except Exception:
         logger.warning("Could not read repeating tasks from the Things database",
                        exc_info=True)

@@ -8,7 +8,7 @@ import plistlib
 
 import pytest
 from tests._helpers import tool_text
-from things_mcp.formatters import format_todo
+from things_mcp.formatters import format_area, format_project, format_todo
 from things_mcp.recurrence import next_occurrences
 from things_mcp.server import get_today, get_upcoming
 
@@ -42,7 +42,7 @@ def repeating(mocker):
     rows = []
     mocker.patch(
         'things_mcp.recurrence.Database',
-        return_value=mocker.Mock(execute_query=lambda sql: rows),
+        return_value=mocker.Mock(execute_query=lambda sql, parameters=(): rows),
     )
     # things.tasks serves two callers now: hydrating a template by uuid, and
     # the deadline-only sweep in get_upcoming, which passes no uuid.
@@ -87,7 +87,7 @@ def test_next_occurrences_skips_a_template_that_cannot_be_read(mocker):
     mocker.patch(
         'things_mcp.recurrence.Database',
         return_value=mocker.Mock(
-            execute_query=lambda sql: [
+            execute_query=lambda sql, parameters=(): [
                 {'uuid': 'gone', 'start_date': '2026-09-01',
                  'deadline': None, 'rule': None}
             ]
@@ -211,3 +211,54 @@ def test_next_occurrences_drops_a_deadline_it_cannot_decode(repeating):
     (occurrence,) = next_occurrences()
 
     assert occurrence['deadline'] is None
+
+
+def test_format_area_gives_a_repeater_its_own_upcoming_section(mocker):
+    """Real values from 🧑🏻‍💻 Fast Wombat, checked against the app 2026-08-22.
+
+    Both of the area's scheduled items are repeating templates. Before they
+    were projected the area rendered with no Upcoming section at all, because
+    a section is emitted only when non-empty -- and a missing section reads as
+    "nothing is scheduled here", a stronger and more misleading claim than a
+    list that is merely short.
+    """
+    mocker.patch('things.projects', return_value=[])
+    mocker.patch('things.todos', return_value=[])
+    mocker.patch('things_mcp.formatters.next_occurrences', return_value=[
+        dict(_template('goog', 'Use Google Voice number to keep it'),
+             start_date='2026-08-31', repeating=True),
+        dict(_template('tax', 'File annual Franchise Tax report by May 15 each year'),
+             start_date='2027-03-01', repeating=True),
+    ])
+
+    text = format_area({'uuid': 'area-uuid', 'title': '🧑🏻‍💻 Fast Wombat'},
+                       include_items=True)
+
+    assert "Upcoming:" in text
+    assert "[2026-08-31] Use Google Voice number to keep it" in text
+    assert "[2027-03-01] File annual Franchise Tax report by May 15 each year" in text
+
+
+def test_format_area_asks_only_for_its_own_repeaters(mocker):
+    """Narrowed in SQL rather than by filtering all 68 -- get_areas formats
+    every area, so a full hydration per area would be paid nine times over."""
+    mocker.patch('things.projects', return_value=[])
+    mocker.patch('things.todos', return_value=[])
+    occurrences = mocker.patch('things_mcp.formatters.next_occurrences', return_value=[])
+
+    format_area({'uuid': 'area-uuid', 'title': 'An area'}, include_items=True)
+
+    occurrences.assert_called_once_with(area='area-uuid')
+
+
+def test_format_project_includes_its_own_repeaters(mocker):
+    mocker.patch('things.tasks', return_value=[])
+    mocker.patch('things.todos', return_value=[])
+    mocker.patch('things_mcp.formatters.next_occurrences', return_value=[
+        dict(_template('build', 'Push a new build every Sunday'), start_date='2026-08-23'),
+    ])
+
+    text = format_project({'uuid': 'proj-uuid', 'title': '📱 Roll Play iOS'},
+                          include_items=True)
+
+    assert "Push a new build every Sunday" in text

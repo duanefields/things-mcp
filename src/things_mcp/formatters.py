@@ -1,5 +1,7 @@
 import logging
 import things
+
+from .recurrence import next_occurrences
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -247,7 +249,8 @@ def format_project(project: dict, include_items: bool = False) -> str:
             project_text += f"\n- {heading['title']}"
 
     if include_items:
-        todos = things.todos(project=project['uuid'])
+        todos = (things.todos(project=project['uuid']) or []) \
+            + next_occurrences(project=project['uuid'])
         if todos:
             project_text += "\n\nTasks:"
             for todo in todos:
@@ -270,9 +273,14 @@ def format_area(area: dict, include_items: bool = False) -> str:
         # groups everything it holds by list -- Anytime, then Upcoming, then
         # Someday -- so a Someday project sits below Anytime to-dos rather than
         # at the top with the other projects.
+        # A repeating task filed straight in the area is invisible to
+        # things.todos -- and an area whose only scheduled items repeat used to
+        # render with no Upcoming section at all, which reads as "nothing is
+        # scheduled here", a stronger claim than a merely short list.
         items = display_order(
             (things.projects(area=area['uuid']) or [])
             + (things.todos(area=area['uuid']) or [])
+            + next_occurrences(area=area['uuid'])
         )
         for label, group in (("Items", 0), ("Upcoming", 1), ("Someday", 2)):
             rows = [i for i in items if schedule_group(i) == group]
