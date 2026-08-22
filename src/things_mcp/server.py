@@ -239,12 +239,16 @@ def _paginate_format(page, total, formatter, limit, offset, empty_msg, separator
     pre-pagination behavior (no header). Otherwise a "Showing X-Y of Z
     items" header is prepended so the caller knows there is more to fetch.
     """
-    if limit is None and offset == 0:
-        return separator.join(formatter(i) for i in page) if page else empty_msg
     if total == 0:
         return empty_msg
     if offset >= total:
         return f"Showing 0 of {total} items (offset {offset} is past the end)"
+    # The header says what was held back, so it is only worth saying when
+    # something was. Since limit now defaults to 50 rather than None, testing
+    # the limit itself would stamp "Showing 1-15 of 15 items" on every complete
+    # answer -- noise, and it reads as though there were more.
+    if offset == 0 and len(page) == total:
+        return separator.join(formatter(i) for i in page)
     header = f"Showing {offset + 1}-{offset + len(page)} of {total} items\n\n"
     return header + separator.join(formatter(i) for i in page)
 

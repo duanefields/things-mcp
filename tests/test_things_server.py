@@ -597,3 +597,33 @@ async def test_get_upcoming_rejects_a_negative_window():
     result = await get_upcoming(within_days=-1)
 
     assert "within_days must be zero or a positive integer" in tool_text(result)
+
+
+@pytest.mark.asyncio
+async def test_a_complete_answer_carries_no_truncation_header(mocker):
+    """limit defaults to 50 rather than None, so testing the limit itself would
+    stamp "Showing 1-15 of 15 items" on every complete answer -- noise that
+    reads as though something were held back."""
+    mocker.patch('things.projects', return_value=[])
+    mocker.patch('things.tasks', return_value=[])
+    mocker.patch('things.today', return_value=[
+        {'uuid': 'a', 'title': 'The only one', 'type': 'to-do'},
+    ])
+
+    text = tool_text(await get_today())
+
+    assert "Showing" not in text
+    assert "The only one" in text
+
+
+@pytest.mark.asyncio
+async def test_a_truncated_answer_says_how_many_were_held_back(mocker):
+    mocker.patch('things.projects', return_value=[])
+    mocker.patch('things.tasks', return_value=[])
+    mocker.patch('things.today', return_value=[
+        {'uuid': str(i), 'title': f'Todo {i}', 'type': 'to-do'} for i in range(4)
+    ])
+
+    text = tool_text(await get_today(limit=2))
+
+    assert "Showing 1-2 of 4 items" in text
