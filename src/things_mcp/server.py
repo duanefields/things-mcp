@@ -309,6 +309,10 @@ async def get_inbox(limit: int = None, offset: int = 0) -> ToolResult:
 async def get_today(limit: int = None, offset: int = 0) -> ToolResult:
     """Get todos scheduled for today, plus anything overdue
 
+    Scheduled to-dos only. Calendar events are not in the Things database and
+    never appear here -- a flight, a meeting or an appointment has to be read
+    from the calendar, and a day can look empty here while being full.
+
     Rows carry full notes, tags and deadline, and effective_area -- the area
     an item falls under, inherited from its project when it has none of its
     own, which is the usual case. A project appears as one row without the
@@ -346,6 +350,10 @@ async def get_upcoming(within_days: int = None, limit: int = 50,
     Includes repeating tasks on their next occurrence and tasks that have only
     a deadline, both of which the Things app shows here. Every todo carries its
     full notes and tags, so a list can be reasoned about without a second pass.
+
+    Scheduled to-dos only. Calendar events are not in the Things database and
+    never appear here -- a flight, a meeting or an appointment has to be read
+    from the calendar, and a day can look empty here while being full.
 
     Args:
         within_days: Only items scheduled within this many days from today,
@@ -1104,6 +1112,10 @@ async def get_deadlines(within_days: int = None, area_uuid: str = None,
 
     Rows carry full notes, tags and effective_area -- the area an item falls
     under, inherited from its project when it has none of its own.
+
+    Scheduled to-dos only. Calendar events are not in the Things database and
+    never appear here -- a flight, a meeting or an appointment has to be read
+    from the calendar, and a day can look empty here while being full.
 
     Args:
         within_days: Only items due within this many days from today. Overdue
