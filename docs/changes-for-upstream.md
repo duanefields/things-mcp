@@ -4,10 +4,11 @@ This fork contains two independent sets of changes. They are separable, and the 
 considerably more opinionated than the first, so they are described apart rather than offered as a
 single lump.
 
-Every change is additive. A checkout with no new environment variables set behaves as it always
-has: stdio transport, no authentication.
+Every change is additive, with one deliberate exception noted where it appears: `search_todos` no
+longer matches an item by the name of its area. Otherwise a checkout with no new environment
+variables set behaves as it always has: stdio transport, no authentication.
 
-## Group 1 — improvements to the existing tools
+## Group 1 — tool improvements, new tools, and two bug fixes
 
 These have nothing to do with remote hosting and apply equally to a plain stdio setup. If only one
 group is of interest, it is probably this one.
@@ -82,6 +83,107 @@ Two behaviors found by testing, both of which the tool now enforces or documents
 - Tags that do not already exist are silently dropped. General Things behavior, but worth
   knowing when a model invents tag names.
 
+### `get_item`, the read that closes the loop
+
+The create tools return an ID, but no read tool accepted one — you could make something and then only
+act on it through write tools, or go hunting for it by title.
+
+`get_item(id)` takes any UUID. `things.get` already resolves todos, projects, areas, headings and
+tags, so the tool dispatches on the type it reports to the matching formatter and passes
+`include_items` through for the contained items. It reuses the pagination envelope with a
+one-element list, so its `structured_content` is the same shape as every other read tool rather than
+a second envelope invented for the single-item case.
+
+### `get_deadlines`
+
+`things.deadlines()` already exists in things.py and was not exposed, so answering "what is due, what
+is overdue" meant pulling a whole list and filtering client-side.
+
+Incomplete items that have a deadline, earliest first, which puts overdue items at the front.
+Projects are included alongside todos — `things.deadlines` returns both, and `get_recent` already
+formats mixed types the same way. `within_days` trims to a horizon without dropping overdue items,
+since anything past due is still at or below the cutoff. Deadlines are `YYYY-MM-DD` strings, so the
+comparison is lexicographic and needs no date parsing.
+
+### Search that ranks, and stops matching on area names
+
+`things.search()` is one `LIKE '%query%'` over `TASK.title`, `TASK.notes` and `AREA.title`. Three
+consequences, of which the third is the surprising one:
+
+- `dentist call` finds nothing when the task is `Call dentist`.
+- Results arrive in database order, with no notion of a better match.
+- Searching an area's name returns every task in that area. `AREA.title` is in the match list, so a
+  query of `Work` matches every task that happens to live in the Work area.
+
+`search_todos` now tokenizes the query. The longest token — usually the most selective — still goes
+to SQL, so there is exactly one database scan, the same one as before for a single-term query. The
+remaining terms are matched in Python over that candidate set, which is what makes word order
+irrelevant. Ranking is a small score rather than a sort key: whole word beats prefix beats mid-word,
+a title hit outweighs a notes hit, and a contiguous hit on the whole query outranks scattered terms.
+Ties keep the order things.py returned.
+
+Matching against title and notes only is what removes the area flood, and it is **the one behavior
+change in this fork that is not purely additive**: an item whose only connection to the query is its
+area no longer matches at all. `search_advanced(area=...)` remains the way to search by area.
+
+No new dependency. Semantic search was considered and rejected — titles are too short to embed well,
+and it would put a model dependency in a server that is otherwise fully offline.
+
+Still not searched, and worth knowing: tags, and checklist-item titles. things.py marks the latter as
+an unimplemented TODO inside `make_search_filter` itself.
+
+### `append_notes` and `prepend_notes`
+
+Every notes edit was a destructive full replacement, so appending a line meant read, concatenate,
+write back — with a lost update if anything else touched the item in between.
+
+`append-notes` and `prepend-notes` are documented Things URL scheme parameters, so this needed no
+AppleScript. Both are threaded through `update_todo` and `update_project` alongside the existing
+`notes` parameter, which keeps its replace-everything behavior.
+
+### `add_tag`, and a scripting dictionary that misleads
+
+Tags that do not already exist are silently dropped from every kind of create — the behavior noted
+under `add_project(items=…)` above — so an invented tag name just vanishes with no error, and there
+was no way to create the tag first. The URL scheme has no `add-tag` command.
+
+AppleScript does, and the reason that was not obvious is worth recording. Things' scripting
+dictionary marks the application's `tag` element `access="r"`, which reads as "you cannot create
+one". It marks `area` exactly the same way, and `make new area` has always worked. The dictionary is
+not the authority here; the check is. `make new tag` works, and a duplicate name returns the existing
+tag's id rather than creating a second tag, so the operation is idempotent. The tool reads
+`things.tags()` first anyway, so an existing tag is reported as such rather than claimed as a create.
+
+### `trash_item`, and why there is no delete
+
+The server could create items it could not take back — only `completed` and `canceled` existed. This
+was built last, because unverified AppleScript plus a destructive operation is the worst combination
+to build on speculatively, so it was verified against Things 3 on disposable items first.
+
+What the check found changed the shape of the feature. AppleScript's `delete` and
+`move … to list "Trash"` are the same operation: both leave the item in the Trash, recoverable, and a
+trashed item is not addressable by AppleScript afterwards at all. Things has no permanent per-item
+delete to expose, and `empty trash` empties the whole thing, so it is left out. One tool, not two,
+and nothing here destroys data outright.
+
+The tool reads the item first, which gives a precise error for a missing id, recognizes an
+already-trashed item that AppleScript could not have addressed anyway, refuses areas — same reasoning
+as the absent `delete_area`, since an area takes every project in it — and picks the right
+AppleScript class for the type.
+
+### The auth-token lookup could raise
+
+Upstream behavior, not something this fork introduced. `construct_url` called `things.token()` with
+no `try`/`except`. That call opens the Things database, so it raises rather than returning `None`
+when Things is not installed, the database is locked, or the macOS privacy grant is missing — and
+every update operation surfaced a raw traceback through the MCP boundary.
+
+`url_scheme.auth_token()` returns `None` in all of those cases and logs the reason. For `update` and
+`update-project`, `construct_url` raises `AuthTokenUnavailable` when there is no usable token, and
+the update tools return that message as a plain string. Raising rather than building the URL anyway
+matters: Things rejects an update that arrives without an `auth-token`, so the previous code would
+have dispatched it and reported success.
+
 ### Relevant commits
 
 ```text
@@ -90,6 +192,13 @@ Two behaviors found by testing, both of which the tool now enforces or documents
 02dd475  bound the ID lookup by creation date, not by backlog size
 2a6b02f  note the one case ID matching cannot disambiguate
 dcfe464  let add_project build a project's structure with headings
+abd1b0b  add a get_item tool for reading an item by ID
+ce90af9  add a get_deadlines tool
+188fe0c  guard the auth-token lookup behind url_scheme.auth_token()
+93e41b7  add append_notes and prepend_notes to the update tools
+2bcb4de  rank search results and match terms in any order
+1a07f91  add a tag creation tool
+2e8f97d  add a trash tool for to-dos and projects
 ```
 
 ## Group 2 — HTTP transport, authentication, and hosting
@@ -135,6 +244,14 @@ Because the endpoint is unauthenticated, the dispatch `error` is a summary — e
 status — and never the exception text. `str(CalledProcessError)` embeds the whole command line, and
 a Things URL carries the auth-token along with the title and notes of the item being written.
 
+One bug worth calling out, because it inverted the endpoint's purpose. Reading the WAL age used to
+construct a `things.database.Database` just to get at `.filepath`, and that constructor opens SQLite
+and asserts on the schema version. A missing, locked or privacy-revoked database raises
+`sqlite3.OperationalError`, an old schema raises `AssertionError`, and neither was caught — so
+`/health` returned a 500 in exactly the case it exists to detect. It now resolves the path from
+`THINGSDB` or `things.database.DEFAULT_FILEPATH`, which removes the SQLite open entirely rather than
+catching what it throws.
+
 ### Deployment material
 
 `docs/deployment-macos.md` and `scripts/`. Entirely optional, and specific to running on macOS as a
@@ -154,22 +271,32 @@ process rather than failing it and is genuinely hard to diagnose from scratch.
 5badf8c  drop the health check's dependency on /usr/bin/python3
 f24354b  add a self-update script for a deployed host
 349eb0f  do not let untracked files block a deploy
+104686e  stop the health endpoint from crashing on an unreachable database
+40c9b7f  stop the unauthenticated health endpoint from publishing the auth-token
 ```
 
 ## Testing
 
-352 tests pass, 178 of them new. The existing suite is untouched and still green.
+355 tests pass, 181 of them new. The existing suite is untouched and still green.
 
 New tests cover the OAuth provider including its failure paths, the health endpoint, ID resolution
 including timeout and duplicate-title behavior, batch payload construction, and the
-heading-relative index rule that project ordering depends on. Transport selection is covered too,
-including the stateless default. The suite imports tool functions directly and awaits them rather
-than going through the MCP protocol, so it does not exercise a real client session; the HTTP and
-auth paths were verified against a live deployment instead.
+heading-relative index rule that project ordering depends on. Each tool above brings its own:
+search ranking and the dropped area match, the single-item read across all five item types, the
+deadline horizon, notes append and prepend, tag creation and its idempotence, and every branch of
+the trash tool. Transport selection is covered too, including the stateless default. The suite
+imports tool functions directly and awaits them rather than going through the MCP protocol, so it
+does not exercise a real client session; the HTTP and auth paths were verified against a live
+deployment instead.
 
 The suite is hermetic — it mocks things.py wholesale and touches no real Things database — and runs
 on every push and pull request via `.github/workflows/tests.yml`, on Ubuntu, against Python 3.12
-and 3.13.
+and 3.13. Ubuntu is the point as much as the convenience: five tests used to pass only on a machine
+with a real Things database, and a machine without one is the only place that shows up as a failure.
+
+```text
+5414cec  make the test suite hermetic and run it in CI
+```
 
 ## One thing worth knowing regardless
 
