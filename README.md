@@ -153,6 +153,28 @@ When neither is set, output is unchanged. When set, a `Showing X-Y of Z items` h
 
 These same read tools also return **structured content** alongside the human-readable text: MCP clients receive the raw item dicts plus `count`/`total`/`offset`/`limit` under `structured_content`, so data can be consumed programmatically without parsing the formatted text.
 
+### Ordering (project, area, and Upcoming reads)
+
+`get-todos` (for a project), `get-upcoming`, and an area's contents come back in the order the Things app displays them, rather than raw database order. Two rules compose.
+
+**Scheduling groups.** Anytime items first, then scheduled items by date, then Someday items. Things stores a scheduled ("Upcoming") item as `start=Someday` *with* a `start_date`, and a true Someday item as `start=Someday` with none, so `index` alone interleaves all three.
+
+**Manual position within a group,** which is not the same column for each:
+
+| Group | Ordered by |
+|-------|------------|
+| Anytime | `index` |
+| Scheduled | `start_date`, then `todayIndex` |
+| Someday | `index` |
+
+A to-do scheduled for *today* is `start=Anytime` with a `start_date`, and keeps its place in the Anytime block — its date does not sort it.
+
+**Inside a project,** todos are additionally grouped by heading: those before any heading first, then each heading's todos, headings themselves in `index` order. A todo's `index` is relative to its own heading, so sorting everything on `index` together does not reproduce the display order. Headings are not returned as items; each to-do carries `heading` and `heading_title`.
+
+**Inside an area,** projects and to-dos are one list, not two sections, and projects sort above to-dos *within* each group — so a Someday project heads the Someday section rather than floating to the top with the Anytime projects.
+
+`get-inbox`, `get-today`, `get-anytime` and `get-someday` are each a single scheduling group already, and keep the order things.py returns (`get-today` uses `todayIndex`). `get-anytime` excludes headings, which `things.anytime()` returns alongside real tasks.
+
 ### get-item
 - `id` (required) - UUID of the item
 - `include_items` (optional, default: true) - Include contained items: a todo's checklist, a project's todos, an area's projects, a tag's tagged items

@@ -14,7 +14,10 @@ import things
 from fastmcp import FastMCP
 from fastmcp.tools.tool import ToolResult
 from starlette.responses import JSONResponse
-from .formatters import format_todo, format_project, format_area, format_tag, format_heading
+from .formatters import (
+    format_todo, format_project, format_area, format_tag, format_heading,
+    display_order,
+)
 from .auth import build_auth
 from . import url_scheme
 
@@ -235,6 +238,9 @@ async def get_upcoming(limit: int = None, offset: int = 0) -> ToolResult:
     todos = things.upcoming(include_items=True)
     # Filter out tasks from Someday projects, then paginate
     todos = filter_someday_project_tasks(todos or [])
+    # Every item here is scheduled, so this is purely a sort by date. things.py
+    # orders by index, which put December 2026 ahead of August 2026.
+    todos = display_order(todos)
     return _paginate_result(todos, format_todo, limit, offset, "No items found")
 
 @mcp.tool
@@ -249,8 +255,14 @@ async def get_anytime(limit: int = None, offset: int = 0) -> ToolResult:
     if err:
         return _error_result(err)
     todos = things.anytime(include_items=True)
+    # things.anytime() is tasks(start="Anytime") with no type filter, so it also
+    # returns every heading in an Anytime project -- 50 of them on a real
+    # database. A heading is project structure, not something you can do, and
+    # the app's Anytime list shows none. get_someday and get_upcoming need no
+    # such filter, since a heading is never Someday or scheduled.
+    todos = [t for t in (todos or []) if t.get('type') != 'heading']
     # Filter out tasks from Someday projects, then paginate
-    todos = filter_someday_project_tasks(todos or [])
+    todos = filter_someday_project_tasks(todos)
     return _paginate_result(todos, format_todo, limit, offset, "No items found")
 
 @mcp.tool
@@ -359,6 +371,11 @@ async def get_todos(project_uuid: str = None, include_items: bool = True,
     Returns both human-readable text and structured JSON (the raw todo dicts
     plus pagination metadata) so MCP clients can consume either form.
 
+    When project_uuid is given, todos come back in the order the Things UI
+    displays them: grouped by heading, and within each heading Anytime items in
+    their manual order, then scheduled items by date, then Someday items in
+    their manual order.
+
     Args:
         project_uuid: Optional UUID of a specific project to get todos from
         include_items: Include checklist items
@@ -374,6 +391,18 @@ async def get_todos(project_uuid: str = None, include_items: bool = True,
             return _error_result(f"Error: Invalid project UUID '{project_uuid}'")
 
     todos = things.todos(project=project_uuid, start=None, include_items=include_items)
+    # things.py orders by TASK.index alone, which is neither the heading grouping
+    # nor the scheduling grouping Things displays.
+    if project_uuid:
+        todos = _project_display_order(
+            todos or [],
+            things.tasks(type="heading", project=project_uuid) or [],
+        )
+    else:
+        # Across every project there is no heading structure to rebuild -- an
+        # index is only meaningful within its own heading -- but the three
+        # scheduling groups still apply.
+        todos = display_order(todos or [])
     return _paginate_result(todos, format_todo, limit, offset, "No todos found")
 
 @mcp.tool
@@ -935,6 +964,30 @@ def _build_project_items(items):
 
 def _by_index(rows):
     return sorted(rows, key=lambda r: (r.get("index") is None, r.get("index")))
+
+
+def _project_display_order(todos, headings):
+    """A project's todos in the order the Things UI shows them.
+
+    Two rules compose. A todo's index is relative to its own heading, so sorting
+    everything on index together does not reproduce the display order: todos
+    placed before any heading come first, then each heading's todos, with the
+    headings themselves in index order. Within each of those groups the
+    Anytime / scheduled / Someday split applies.
+    """
+    by_heading = defaultdict(list)
+    for todo in todos:
+        by_heading[todo.get("heading")].append(todo)
+
+    ordered = display_order(by_heading.pop(None, []))
+    for heading in _by_index(headings):
+        ordered.extend(display_order(by_heading.pop(heading["uuid"], [])))
+    # A todo whose heading did not come back with the project still has to be
+    # returned. Listing it last is worse than placing it correctly; dropping it
+    # silently would be worse than either.
+    for orphaned in by_heading.values():
+        ordered.extend(display_order(orphaned))
+    return ordered
 
 
 def _read_project_contents(project_id):

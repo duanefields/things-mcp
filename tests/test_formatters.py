@@ -674,12 +674,12 @@ class TestFormatArea:
     def test_format_area_with_items(self, mock_todos, mock_projects):
         """Test formatting area with include_items=True."""
         mock_projects.return_value = [
-            {'title': 'Project A'},
-            {'title': 'Project B'}
+            {'title': 'Project A', 'type': 'project'},
+            {'title': 'Project B', 'type': 'project'}
         ]
         mock_todos.return_value = [
-            {'title': 'Todo 1'},
-            {'title': 'Todo 2'}
+            {'title': 'Todo 1', 'type': 'to-do'},
+            {'title': 'Todo 2', 'type': 'to-do'}
         ]
         
         area = {
@@ -688,12 +688,14 @@ class TestFormatArea:
         }
         result = format_area(area, include_items=True)
         
-        assert "Projects:" in result
-        assert "- Project A" in result
-        assert "- Project B" in result
-        assert "Tasks:" in result
+        # Projects and to-dos are one list, as the app shows them, with
+        # projects above to-dos inside each group.
+        assert "Items:" in result
+        assert "- [project] Project A" in result
+        assert "- [project] Project B" in result
         assert "- Todo 1" in result
         assert "- Todo 2" in result
+        assert result.index("Project B") < result.index("Todo 1")
         
         mock_projects.assert_called_once_with(area='items-area-uuid')
         mock_todos.assert_called_once_with(area='items-area-uuid')
@@ -706,8 +708,8 @@ class TestFormatArea:
         }
         result = format_area(area, include_items=False)
         
-        assert "Projects:" not in result
-        assert "Tasks:" not in result
+        assert "Items:" not in result
+        assert "Someday:" not in result
     
     def test_format_area_with_created_age(self):
         """Test formatting area with created date shows age."""

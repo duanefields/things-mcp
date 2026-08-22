@@ -71,7 +71,7 @@ This is a Model Context Protocol (MCP) server that bridges Claude Desktop with t
    - Converts Things database objects to human-readable text
    - Handles nested data (projects within areas, checklist items, etc.)
 
-4. **tests/** - Unit test suite (355 tests)
+4. **tests/** - Unit test suite (384 tests)
    - **conftest.py** - Pytest fixtures and mock data
    - **_helpers.py** - `tool_text()` reads the text channel from a `ToolResult` (or a plain-string result) so text assertions work across both return shapes
    - **test_url_scheme.py** - Tests for URL construction
@@ -89,6 +89,7 @@ This is a Model Context Protocol (MCP) server that bridges Claude Desktop with t
 - Read tools return a `ToolResult` (human-readable text + `structured_content`); write/report tools and error paths return plain strings
 - Error handling for invalid UUIDs and missing parameters; pagination args validated by `_validate_pagination`
 - Supports filtering and including nested items via parameters
+- **Display ordering**: project, area and Upcoming reads are sorted the way the Things UI shows them, not by raw `index`. `formatters.display_order` applies the scheduling groups (Anytime → scheduled by date → Someday) and sorts projects above to-dos within a group; `schedule_group` classifies an item. Each group uses a different manual-order column — `index` for Anytime and Someday, `todayIndex` for scheduled — which was verified against the app, not inferred. `server._project_display_order` composes that with the heading grouping, since a to-do's `index` is relative to its own heading. All of it is pinned by `tests/test_display_order.py` using real values from the app
 - **Search ranking**: `search_todos` tokenizes the query, narrows in SQL with the longest token, then matches and ranks the rest in Python (`_search_tokens`, `_token_score`, `_rank_search_results`). Matching is against title and notes only — things.py also matches the parent AREA's title, which flooded results when an area name was searched
 - **Someday Project Filtering**: Tasks from Someday projects are filtered out of Today, Upcoming, and Anytime views to match the Things UI behavior and reduce clutter
 - Unit tests mock all external dependencies (Things.py, shell commands)

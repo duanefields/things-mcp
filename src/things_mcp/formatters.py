@@ -39,6 +39,65 @@ def _calculate_age(date_str: str) -> str:
         return f"{years} year{'s' if years > 1 else ''} ago"
 
 
+def schedule_group(todo):
+    """Which of the three groups Things shows a todo in: 0 Anytime, 1 scheduled, 2 Someday.
+
+    Things stores a scheduled ("Upcoming") item as start='Someday' with a
+    start_date, and a true Someday item as start='Someday' with none. Anytime
+    comes first, and that includes anything scheduled for today or overdue --
+    Things keeps those in the main list rather than moving them down.
+    """
+    if todo.get("start") != "Someday":
+        return 0
+    return 1 if todo.get("start_date") else 2
+
+
+def _position(todo, field):
+    """A sortable pair for one of Things' manual-order columns, missing last."""
+    value = todo.get(field)
+    return (value is None, value or 0)
+
+
+def display_order(todos):
+    """Todos in the order Things lists them within one container.
+
+    Anytime items in their manual order, then scheduled items by date, then
+    Someday items in their manual order. `index` is a manual position and says
+    nothing about which group an item is in, so sorting on it alone interleaves
+    all three.
+
+    The two groups use different manual-order columns, which is not guessable
+    and was checked against the app. Anytime and Someday go by `index`.
+    Scheduled items go by date and then `todayIndex`, their position in the
+    date-based views -- `index` gets this visibly wrong, ordering one real
+    project's 8/29 items 4060, 0, 0 where the app shows them 4060 first.
+    Verified against Things' display of a project heading holding both groups.
+
+    start_date enters the key only for the scheduled group. An Anytime item can
+    carry one too -- that is what a to-do scheduled for today looks like -- and
+    letting it sort them would break the manual order Things shows them in.
+
+    Projects sort above to-dos inside a group, which index does not express: an
+    area's Someday project heads its Someday section above to-dos whose indexes
+    are far lower, and its Anytime projects all precede Anytime to-dos with
+    indexes in between. Also verified against the app.
+    """
+    def key(todo):
+        group = schedule_group(todo)
+        if group == 1:
+            date = todo.get("start_date") or ""
+            manual = _position(todo, "today_index")
+        else:
+            date = ""
+            manual = _position(todo, "index")
+        kind = 0 if todo.get("type") == "project" else 1
+        # `index` again as a stable tiebreak: 10 of 38 scheduled todos in the
+        # sample carried todayIndex 0, and their relative order is unverified.
+        return (group, date, kind, manual, _position(todo, "index"))
+
+    return sorted(todos, key=key)
+
+
 def _lookup_title(uuid):
     """Fetch an item by uuid and return its title, or None if missing/broken.
 
@@ -185,17 +244,23 @@ def format_area(area: dict, include_items: bool = False) -> str:
     area_text = _append_timestamps(area_text, area)
 
     if include_items:
-        projects = things.projects(area=area['uuid'])
-        if projects:
-            area_text += "\n\nProjects:"
-            for project in projects:
-                area_text += f"\n- {project['title']}"
-
-        todos = things.todos(area=area['uuid'])
-        if todos:
-            area_text += "\n\nTasks:"
-            for todo in todos:
-                area_text += f"\n- {todo['title']}"
+        # Projects and to-dos are one list in the app, not two sections. An area
+        # groups everything it holds by list -- Anytime, then Upcoming, then
+        # Someday -- so a Someday project sits below Anytime to-dos rather than
+        # at the top with the other projects.
+        items = display_order(
+            (things.projects(area=area['uuid']) or [])
+            + (things.todos(area=area['uuid']) or [])
+        )
+        for label, group in (("Items", 0), ("Upcoming", 1), ("Someday", 2)):
+            rows = [i for i in items if schedule_group(i) == group]
+            if not rows:
+                continue
+            area_text += f"\n\n{label}:"
+            for item in rows:
+                date = f"[{item['start_date']}] " if group == 1 else ""
+                kind = "[project] " if item.get('type') == 'project' else ""
+                area_text += f"\n- {date}{kind}{item['title']}"
 
     return area_text
 
