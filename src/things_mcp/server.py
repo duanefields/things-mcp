@@ -282,7 +282,12 @@ def _error_result(msg):
 # List view tools
 @mcp.tool
 async def get_inbox(limit: int = None, offset: int = 0) -> ToolResult:
-    """Get todos from Inbox
+    """Get todos from the Inbox -- captured but not yet organized
+
+    Rows carry full notes, tags and deadline, and effective_area -- the area
+    an item falls under, inherited from its project when it has none of its
+    own, which is the usual case. A project appears as one row without the
+    to-dos inside it; use get_todos(project_uuid=...) for those.
 
     Args:
         limit: Maximum number of items to return (default: all)
@@ -296,7 +301,12 @@ async def get_inbox(limit: int = None, offset: int = 0) -> ToolResult:
 
 @mcp.tool
 async def get_today(limit: int = None, offset: int = 0) -> ToolResult:
-    """Get todos due today
+    """Get todos scheduled for today, plus anything overdue
+
+    Rows carry full notes, tags and deadline, and effective_area -- the area
+    an item falls under, inherited from its project when it has none of its
+    own, which is the usual case. A project appears as one row without the
+    to-dos inside it; use get_todos(project_uuid=...) for those.
 
     Args:
         limit: Maximum number of items to return (default: all)
@@ -366,7 +376,12 @@ async def get_upcoming(within_days: int = None, limit: int = None,
 
 @mcp.tool
 async def get_anytime(limit: int = None, offset: int = 0) -> ToolResult:
-    """Get todos from Anytime list
+    """Get todos from the Anytime list -- no date, available to do now
+
+    Rows carry full notes, tags and deadline, and effective_area -- the area
+    an item falls under, inherited from its project when it has none of its
+    own, which is the usual case. A project appears as one row without the
+    to-dos inside it; use get_todos(project_uuid=...) for those.
 
     Args:
         limit: Maximum number of items to return (default: all)
@@ -388,7 +403,12 @@ async def get_anytime(limit: int = None, offset: int = 0) -> ToolResult:
 
 @mcp.tool
 async def get_someday(limit: int = None, offset: int = 0) -> ToolResult:
-    """Get todos from Someday list, including tasks in Someday projects
+    """Get todos from the Someday list, including tasks in Someday projects
+
+    Rows carry full notes, tags and deadline, and effective_area -- the area
+    an item falls under, inherited from its project when it has none of its
+    own, which is the usual case. A project appears as one row without the
+    to-dos inside it; use get_todos(project_uuid=...) for those.
 
     Args:
         limit: Maximum number of items to return (default: all)
@@ -436,7 +456,15 @@ def _stop_datetime(todo):
 
 @mcp.tool
 async def get_logbook(period: str = "7d", limit: int = 50, offset: int = 0) -> ToolResult:
-    """Get completed todos from Logbook, defaults to last 7 days
+    """Get completed todos from the Logbook, defaults to the last 7 days
+
+    Filtered on when each item was completed rather than created, so a task
+    made long ago and finished this week is included.
+
+    Rows carry full notes, tags and deadline, and effective_area -- the area
+    an item falls under, inherited from its project when it has none of its
+    own, which is the usual case. A project appears as one row without the
+    to-dos inside it; use get_todos(project_uuid=...) for those.
 
     Args:
         period: Time period to look back (e.g., '3d', '1w', '2m', '1y'). Defaults to '7d'
@@ -471,7 +499,12 @@ async def get_logbook(period: str = "7d", limit: int = 50, offset: int = 0) -> T
 
 @mcp.tool
 async def get_trash(limit: int = None, offset: int = 0) -> ToolResult:
-    """Get trashed todos
+    """Get todos and projects in the Trash
+
+    Rows carry full notes, tags and deadline, and effective_area -- the area
+    an item falls under, inherited from its project when it has none of its
+    own, which is the usual case. A project appears as one row without the
+    to-dos inside it; use get_todos(project_uuid=...) for those.
 
     Args:
         limit: Maximum number of items to return (default: all)
@@ -559,6 +592,11 @@ async def get_item(id: str, include_items: bool = True) -> ToolResult:
     Without this you can make something and then only act on it through write
     tools, or go hunting for it by title.
 
+    A to-do comes back complete, checklist included. A project, area, heading
+    or tag comes back with its own notes and a list of what it holds by title
+    only -- for the to-dos inside one, with their notes and tags, use
+    get_todos(project_uuid=...), (heading_uuid=...) or (area_uuid=...).
+
     Args:
         id: UUID of the item
         include_items: Include contained items -- a todo's checklist, a
@@ -600,7 +638,11 @@ async def get_item(id: str, include_items: bool = True) -> ToolResult:
 
 @mcp.tool
 async def get_projects(include_items: bool = False, limit: int = None, offset: int = 0) -> ToolResult:
-    """Get all projects from Things
+    """Get all projects, across every area
+
+    A project's own notes are included -- often where the context describing
+    what the project is for lives. include_items lists the titles of the
+    to-dos inside; get_todos(project_uuid=...) returns them in full.
 
     Args:
         include_items: Include tasks within projects
@@ -618,7 +660,11 @@ async def get_projects(include_items: bool = False, limit: int = None, offset: i
 
 @mcp.tool
 async def get_areas(include_items: bool = False, limit: int = None, offset: int = 0) -> ToolResult:
-    """Get all areas from Things
+    """Get all areas, the top level of the hierarchy
+
+    include_items lists what each area holds by title. To get the to-dos under
+    an area -- including those inside its projects, which is nearly all of
+    them -- use get_todos(area_uuid=...).
 
     Args:
         include_items: Include projects and tasks within areas
@@ -655,7 +701,14 @@ async def get_tags(include_items: bool = False, limit: int = None, offset: int =
 
 @mcp.tool
 async def get_tagged_items(tag: str, limit: int = None, offset: int = 0) -> ToolResult:
-    """Get items with a specific tag
+    """Get items carrying a tag, across every area and project
+
+    Tags cut across the hierarchy, so this reaches items a list or area view
+    would not group together.
+
+    Rows carry full notes, tags and deadline, and effective_area -- the area
+    an item falls under, inherited from its project when it has none of its
+    own.
 
     Args:
         tag: Tag title to filter by
@@ -704,7 +757,11 @@ async def get_tag_usage(only_unused: bool = False) -> str:
 
 @mcp.tool
 async def get_headings(project_uuid: str = None, limit: int = None, offset: int = 0) -> ToolResult:
-    """Get headings from Things
+    """Get headings, the sections that group to-dos inside a project
+
+    Returns each heading's UUID, which get_todos(heading_uuid=...) takes to
+    fetch just that section -- "the bugs in Gravehoard" -- with the full notes
+    and tags of every to-do under it.
 
     Args:
         project_uuid: Optional UUID of a specific project to get headings from
@@ -852,7 +909,16 @@ async def search_advanced(
     limit: int = None,
     offset: int = 0
 ) -> ToolResult:
-    """Advanced todo search with multiple filters
+    """Find to-dos by field rather than by text: area, tag, dates, status
+
+    The filter counterpart to search_todos, which matches words. Combine
+    filters to narrow: everything tagged Waiting in one area, everything with
+    a deadline this month, everything created last week.
+
+    Rows carry full notes, tags and deadline, and effective_area -- the area
+    an item falls under, inherited from its project when it has none of its
+    own, which is the usual case. A project appears as one row without the
+    to-dos inside it; use get_todos(project_uuid=...) for those.
 
     Args:
         status: Filter by todo status (incomplete, completed, canceled)
@@ -901,7 +967,14 @@ async def search_advanced(
 # Recent items
 @mcp.tool
 async def get_recent(period: str, limit: int = None, offset: int = 0) -> ToolResult:
-    """Get recently created items
+    """Get items created within a period, newest first
+
+    Filters on creation date, not on when anything was done or scheduled.
+
+    Rows carry full notes, tags and deadline, and effective_area -- the area
+    an item falls under, inherited from its project when it has none of its
+    own, which is the usual case. A project appears as one row without the
+    to-dos inside it; use get_todos(project_uuid=...) for those.
 
     Args:
         period: Time period (e.g., '3d', '1w', '2m', '1y')
@@ -1845,7 +1918,11 @@ async def show_item(
 
 @mcp.tool
 async def search_items(query: str) -> str:
-    """Search for items in Things
+    """Search titles and notes, returning bare titles and IDs only
+
+    A quick lookup when you need an item's ID. For results with notes, tags
+    and dates attached, use search_todos, which searches the same fields and
+    ranks what it finds.
 
     Args:
         query: Search query
