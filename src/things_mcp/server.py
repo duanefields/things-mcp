@@ -30,8 +30,37 @@ from . import url_scheme
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize FastMCP server
-mcp = FastMCP("Things")
+# Initialize FastMCP server.
+#
+# `instructions` reaches the client as server-level guidance, which lands in the
+# system prompt above the tool list and carries more weight than any single
+# description. It was empty here, while another server the user does not use for
+# calendars sets one and uses it to steer calendar work toward itself.
+#
+# It is also the right home for anything true of the whole server. Three facts
+# below were repeated across nine and three tool descriptions respectively --
+# about 670 tokens of duplication, all of it permanently in context. Said once
+# here it is shorter and stronger. The per-tool lines that survive are the ones
+# that decide a single call at the moment of choosing.
+INSTRUCTIONS = """\
+Things 3 on macOS -- the user's task manager. Tasks, projects, areas, headings
+and tags.
+
+Not a calendar and not email. A flight, meeting or appointment is not in this
+database and never appears in these tools, get_today and get_upcoming included.
+A day can look empty here and be full. Read events from the calendar server.
+
+The hierarchy is area -> project -> heading -> to-do. A to-do rarely carries an
+area of its own; it inherits one from its project, which is what effective_area
+reports and what the area_uuid filters match on. Filtering on `area` alone finds
+almost nothing -- on a real database, 88 of 676 to-dos.
+
+Read tools return at most 50 rows by default and say so when they truncate. For
+anything broad, call get_counts first: it sizes every list, area and project for
+about 2k tokens and hands back the UUIDs to narrow with.
+"""
+
+mcp = FastMCP("Things", instructions=INSTRUCTIONS)
 
 
 # Build a set of Someday project UUIDs and a mapping of heading UUID -> project UUID
@@ -290,10 +319,8 @@ def _error_result(msg):
 async def get_inbox(limit: int = None, offset: int = 0) -> ToolResult:
     """Get todos from the Inbox -- captured but not yet organized
 
-    Rows carry full notes, tags and deadline, and effective_area -- the area
-    an item falls under, inherited from its project when it has none of its
-    own, which is the usual case. A project appears as one row without the
-    to-dos inside it; use get_todos(project_uuid=...) for those.
+    A project appears as one row without the to-dos inside it; use
+    get_todos(project_uuid=...) for those.
 
     Args:
         limit: Maximum number of items to return (default: all)
@@ -309,14 +336,8 @@ async def get_inbox(limit: int = None, offset: int = 0) -> ToolResult:
 async def get_today(limit: int = None, offset: int = 0) -> ToolResult:
     """Get todos scheduled for today, plus anything overdue
 
-    Scheduled to-dos only. Calendar events are not in the Things database and
-    never appear here -- a flight, a meeting or an appointment has to be read
-    from the calendar, and a day can look empty here while being full.
-
-    Rows carry full notes, tags and deadline, and effective_area -- the area
-    an item falls under, inherited from its project when it has none of its
-    own, which is the usual case. A project appears as one row without the
-    to-dos inside it; use get_todos(project_uuid=...) for those.
+    A project appears as one row without the to-dos inside it; use
+    get_todos(project_uuid=...) for those.
 
     Args:
         limit: Maximum number of items to return (default: all)
@@ -350,10 +371,6 @@ async def get_upcoming(within_days: int = None, limit: int = 50,
     Includes repeating tasks on their next occurrence and tasks that have only
     a deadline, both of which the Things app shows here. Every todo carries its
     full notes and tags, so a list can be reasoned about without a second pass.
-
-    Scheduled to-dos only. Calendar events are not in the Things database and
-    never appear here -- a flight, a meeting or an appointment has to be read
-    from the calendar, and a day can look empty here while being full.
 
     Args:
         within_days: Only items scheduled within this many days from today,
@@ -394,10 +411,8 @@ async def get_upcoming(within_days: int = None, limit: int = 50,
 async def get_anytime(limit: int = 50, offset: int = 0) -> ToolResult:
     """Get todos from the Anytime list -- no date, available to do now
 
-    Rows carry full notes, tags and deadline, and effective_area -- the area
-    an item falls under, inherited from its project when it has none of its
-    own, which is the usual case. A project appears as one row without the
-    to-dos inside it; use get_todos(project_uuid=...) for those.
+    A project appears as one row without the to-dos inside it; use
+    get_todos(project_uuid=...) for those.
 
     Args:
         limit: Maximum number of items to return (default: 50). Raise it
@@ -423,10 +438,8 @@ async def get_anytime(limit: int = 50, offset: int = 0) -> ToolResult:
 async def get_someday(limit: int = 50, offset: int = 0) -> ToolResult:
     """Get todos from the Someday list, including tasks in Someday projects
 
-    Rows carry full notes, tags and deadline, and effective_area -- the area
-    an item falls under, inherited from its project when it has none of its
-    own, which is the usual case. A project appears as one row without the
-    to-dos inside it; use get_todos(project_uuid=...) for those.
+    A project appears as one row without the to-dos inside it; use
+    get_todos(project_uuid=...) for those.
 
     Args:
         limit: Maximum number of items to return (default: 50). Raise it
@@ -481,10 +494,8 @@ async def get_logbook(period: str = "7d", limit: int = 50, offset: int = 0) -> T
     Filtered on when each item was completed rather than created, so a task
     made long ago and finished this week is included.
 
-    Rows carry full notes, tags and deadline, and effective_area -- the area
-    an item falls under, inherited from its project when it has none of its
-    own, which is the usual case. A project appears as one row without the
-    to-dos inside it; use get_todos(project_uuid=...) for those.
+    A project appears as one row without the to-dos inside it; use
+    get_todos(project_uuid=...) for those.
 
     Args:
         period: Time period to look back (e.g., '3d', '1w', '2m', '1y'). Defaults to '7d'
@@ -521,10 +532,8 @@ async def get_logbook(period: str = "7d", limit: int = 50, offset: int = 0) -> T
 async def get_trash(limit: int = 50, offset: int = 0) -> ToolResult:
     """Get todos and projects in the Trash
 
-    Rows carry full notes, tags and deadline, and effective_area -- the area
-    an item falls under, inherited from its project when it has none of its
-    own, which is the usual case. A project appears as one row without the
-    to-dos inside it; use get_todos(project_uuid=...) for those.
+    A project appears as one row without the to-dos inside it; use
+    get_todos(project_uuid=...) for those.
 
     Args:
         limit: Maximum number of items to return (default: 50). Raise it
@@ -729,10 +738,6 @@ async def get_tagged_items(tag: str, limit: int = 50, offset: int = 0) -> ToolRe
 
     Tags cut across the hierarchy, so this reaches items a list or area view
     would not group together.
-
-    Rows carry full notes, tags and deadline, and effective_area -- the area
-    an item falls under, inherited from its project when it has none of its
-    own.
 
     Args:
         tag: Tag title to filter by
@@ -1021,10 +1026,8 @@ async def search_advanced(
     filters to narrow: everything tagged Waiting in one area, everything with
     a deadline this month, everything created last week.
 
-    Rows carry full notes, tags and deadline, and effective_area -- the area
-    an item falls under, inherited from its project when it has none of its
-    own, which is the usual case. A project appears as one row without the
-    to-dos inside it; use get_todos(project_uuid=...) for those.
+    A project appears as one row without the to-dos inside it; use
+    get_todos(project_uuid=...) for those.
 
     Args:
         status: Filter by todo status (incomplete, completed, canceled)
@@ -1079,10 +1082,8 @@ async def get_recent(period: str, limit: int = 50, offset: int = 0) -> ToolResul
 
     Filters on creation date, not on when anything was done or scheduled.
 
-    Rows carry full notes, tags and deadline, and effective_area -- the area
-    an item falls under, inherited from its project when it has none of its
-    own, which is the usual case. A project appears as one row without the
-    to-dos inside it; use get_todos(project_uuid=...) for those.
+    A project appears as one row without the to-dos inside it; use
+    get_todos(project_uuid=...) for those.
 
     Args:
         period: Time period (e.g., '3d', '1w', '2m', '1y')
@@ -1109,13 +1110,6 @@ async def get_deadlines(within_days: int = None, area_uuid: str = None,
     With within_days and area_uuid together this answers "what work is due this
     week" in one call, which is otherwise a whole area pulled and filtered by
     hand.
-
-    Rows carry full notes, tags and effective_area -- the area an item falls
-    under, inherited from its project when it has none of its own.
-
-    Scheduled to-dos only. Calendar events are not in the Things database and
-    never appear here -- a flight, a meeting or an appointment has to be read
-    from the calendar, and a day can look empty here while being full.
 
     Args:
         within_days: Only items due within this many days from today. Overdue

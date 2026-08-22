@@ -49,6 +49,14 @@ Test coverage includes:
 This is a Model Context Protocol (MCP) server that bridges Claude Desktop with the Things 3 task management app on macOS. The architecture consists of:
 
 1. **src/things_mcp/server.py** - Main MCP server implementation using FastMCP (3.x)
+   - **Server-level `instructions`**: `FastMCP("Things", instructions=INSTRUCTIONS)`. This reaches
+     the client as server guidance placed in the system prompt above the tool list, and outranks
+     any single tool description when a model is choosing between similar tools — the lever another
+     server was using to steer calendar work toward itself while this one left it empty. It is also
+     where anything true of the whole server belongs: the calendar boundary and the inherited-area
+     rule were repeated across 3 and 8 tool descriptions, ~670 tokens of duplication permanently in
+     context. Said once there it is shorter and stronger. Keep per-tool text for what decides a
+     single call; put standing facts in `INSTRUCTIONS`
    - Defines all MCP tools for interacting with Things (32 tools)
    - List views (inbox, today, upcoming, etc.)
    - CRUD operations for todos/projects/areas (Areas have create/read/update — no delete by design; see below)
