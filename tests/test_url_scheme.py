@@ -3,6 +3,7 @@ import pytest
 from unittest.mock import patch, Mock
 import subprocess
 import urllib.parse
+from things_mcp import url_scheme
 from things_mcp.url_scheme import (
     execute_url, construct_url, add_todo, add_project, add_area, update_area,
     update_todo, update_project, show, search, format_when_with_reminder,
@@ -481,3 +482,33 @@ class TestJsonCommand:
         url = json_command(payload, auth_token="t")
         decoded, _ = self._decode_data_param(url)
         assert decoded == payload
+
+class TestAuthTokenGuard:
+    """url_scheme.py:construct_url used to call things.token() unguarded, so a
+    missing or unreadable Things database raised a bare traceback through the
+    MCP boundary on every update."""
+
+    @patch('things.token', side_effect=RuntimeError("database is locked"))
+    def test_auth_token_returns_none_when_lookup_raises(self, _mock_token):
+        assert url_scheme.auth_token() is None
+
+    @patch('things.token', return_value="tok")
+    def test_auth_token_returns_the_token(self, _mock_token):
+        assert url_scheme.auth_token() == "tok"
+
+    @patch('things.token', side_effect=RuntimeError("database is locked"))
+    def test_update_url_raises_a_typed_error(self, _mock_token):
+        with pytest.raises(url_scheme.AuthTokenUnavailable):
+            url_scheme.construct_url('update', {'id': '123'})
+
+    @patch('things.token', return_value=None)
+    def test_no_token_set_is_also_an_error(self, _mock_token):
+        # Building the URL anyway would produce an update Things rejects, and
+        # the caller would be told it succeeded.
+        with pytest.raises(url_scheme.AuthTokenUnavailable):
+            url_scheme.construct_url('update-project', {'id': '123'})
+
+    @patch('things.token', side_effect=RuntimeError("database is locked"))
+    def test_non_update_commands_never_look_up_a_token(self, _mock_token):
+        url = url_scheme.construct_url('add', {'title': 'Test'})
+        assert url == "things:///add?title=Test"

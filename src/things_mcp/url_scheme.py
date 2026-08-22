@@ -1,9 +1,39 @@
 import json as _json
+import logging
 import urllib.parse
 import subprocess
 import time
 import things
 from typing import Optional, Dict, Any, List, Union
+
+logger = logging.getLogger(__name__)
+
+AUTH_TOKEN_HELP = (
+    "Things auth token unavailable. Update operations require it. "
+    "Enable in Things → Settings → General → Manage."
+)
+
+
+class AuthTokenUnavailable(RuntimeError):
+    """The Things auth token could not be read, so an update cannot be built."""
+
+
+def auth_token() -> Optional[str]:
+    """The Things URL scheme auth token, or None if it cannot be read.
+
+    things.token() opens the Things database, so it raises rather than returning
+    None when Things is not installed, the database is locked, or the macOS
+    privacy approval is missing. Every caller wants the same answer -- no usable
+    token -- in all of those cases, and a raw traceback through the MCP boundary
+    in none of them.
+    """
+    try:
+        return things.token()
+    except Exception as exc:
+        logger.warning(
+            "Could not read the Things auth token: %s: %s", type(exc).__name__, exc
+        )
+        return None
 
 # When parameter accepted values:
 # - Keywords: "today", "tomorrow", "evening", "anytime", "someday"
@@ -129,11 +159,14 @@ def construct_url(command: str, params: Dict[str, Any]) -> str:
     # Start with base URL
     url = f"things:///{command}"
 
-    # Get authentication token if needed
+    # Get authentication token if needed. Things rejects an update that arrives
+    # without one, so a missing token is an error rather than a URL to build and
+    # dispatch anyway -- the caller would be told the update succeeded.
     if command in ['update', 'update-project']:
-        token = things.token()
-        if token:
-            params['auth-token'] = token
+        token = auth_token()
+        if not token:
+            raise AuthTokenUnavailable(AUTH_TOKEN_HELP)
+        params['auth-token'] = token
 
     # URL encode parameters
     if params:

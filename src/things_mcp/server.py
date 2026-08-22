@@ -1046,7 +1046,7 @@ async def add_todos(
         titles.append(title)
 
     existing = _existing_ids("to-do", titles) if budget > 0 else set()
-    url_scheme.execute_url(url_scheme.json_command(payload, auth_token=things.token()))
+    url_scheme.execute_url(url_scheme.json_command(payload, auth_token=url_scheme.auth_token()))
     ids = await _resolve_created("to-do", titles, existing, budget)
 
     items = [
@@ -1190,7 +1190,7 @@ async def add_project(
         # The `items` array has to sit inside `attributes`; as a sibling it is
         # ignored and the project is created empty.
         url = url_scheme.json_command(
-            [{"type": "project", "attributes": attributes}], auth_token=things.token()
+            [{"type": "project", "attributes": attributes}], auth_token=url_scheme.auth_token()
         )
     else:
         url = url_scheme.add_project(
@@ -1287,24 +1287,27 @@ async def update_todo(
         prepend_checklist_items: Add these items to the start of the existing checklist
         append_checklist_items: Add these items to the end of the existing checklist
     """
-    url = url_scheme.update_todo(
-        id=id,
-        title=title,
-        notes=notes,
-        when=when,
-        deadline=deadline,
-        tags=tags,
-        add_tags=add_tags,
-        completed=completed,
-        canceled=canceled,
-        list=list,
-        list_id=list_id,
-        heading=heading,
-        heading_id=heading_id,
-        checklist_items=checklist_items,
-        prepend_checklist_items=prepend_checklist_items,
-        append_checklist_items=append_checklist_items,
-    )
+    try:
+        url = url_scheme.update_todo(
+            id=id,
+            title=title,
+            notes=notes,
+            when=when,
+            deadline=deadline,
+            tags=tags,
+            add_tags=add_tags,
+            completed=completed,
+            canceled=canceled,
+            list=list,
+            list_id=list_id,
+            heading=heading,
+            heading_id=heading_id,
+            checklist_items=checklist_items,
+            prepend_checklist_items=prepend_checklist_items,
+            append_checklist_items=append_checklist_items,
+        )
+    except url_scheme.AuthTokenUnavailable as exc:
+        return str(exc)
     url_scheme.execute_url(url)
     return f"Updated todo with ID: {id}"
 
@@ -1374,12 +1377,9 @@ async def bulk_update_todos(
     if not attributes:
         return "No changes specified — pass at least one attribute (list, tags, when, …)."
 
-    token = things.token()
+    token = url_scheme.auth_token()
     if not token:
-        return (
-            "THINGS_AUTH_TOKEN not configured. Bulk updates require it. "
-            "Enable in Things → Settings → General → Manage."
-        )
+        return url_scheme.AUTH_TOKEN_HELP
 
     payload = [
         {"type": "to-do", "operation": "update", "id": uid, "attributes": attributes}
@@ -1413,16 +1413,19 @@ async def update_project(
         completed: Mark as completed
         canceled: Mark as canceled
     """
-    url = url_scheme.update_project(
-        id=id,
-        title=title,
-        notes=notes,
-        when=when,
-        deadline=deadline,
-        tags=tags,
-        completed=completed,
-        canceled=canceled
-    )
+    try:
+        url = url_scheme.update_project(
+            id=id,
+            title=title,
+            notes=notes,
+            when=when,
+            deadline=deadline,
+            tags=tags,
+            completed=completed,
+            canceled=canceled
+        )
+    except url_scheme.AuthTokenUnavailable as exc:
+        return str(exc)
     url_scheme.execute_url(url)
     return f"Updated project with ID: {id}"
 

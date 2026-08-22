@@ -60,14 +60,18 @@ This is a Model Context Protocol (MCP) server that bridges Claude Desktop with t
 2. **src/things_mcp/url_scheme.py** - Things URL scheme + AppleScript implementation
    - Constructs Things URLs for various operations
    - Uses shell script with `open -g` to execute URLs without bringing Things to foreground
-   - Handles authentication tokens for update operations
+   - Handles authentication tokens for update operations. `auth_token()` wraps `things.token()`,
+     which opens the Things database and so raises rather than returning None when Things is
+     missing or unreadable; `construct_url` raises `AuthTokenUnavailable` (message:
+     `AUTH_TOKEN_HELP`) for update commands with no usable token, which the update tools
+     return as a plain string rather than dispatching an update Things would reject
    - `add_area`/`update_area` use AppleScript (`osascript`) since the Things URL scheme has no area commands; all user-supplied strings are escaped (`\` then `"`) before being embedded in the AppleScript string literal to prevent injection, and `osascript` is invoked with an argv list (no shell)
 
 3. **src/things_mcp/formatters.py** - Data formatting utilities
    - Converts Things database objects to human-readable text
    - Handles nested data (projects within areas, checklist items, etc.)
 
-4. **tests/** - Unit test suite (308 tests)
+4. **tests/** - Unit test suite (315 tests)
    - **conftest.py** - Pytest fixtures and mock data
    - **_helpers.py** - `tool_text()` reads the text channel from a `ToolResult` (or a plain-string result) so text assertions work across both return shapes
    - **test_url_scheme.py** - Tests for URL construction

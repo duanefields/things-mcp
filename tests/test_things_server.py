@@ -3,10 +3,11 @@ import urllib.parse
 from datetime import datetime, timedelta
 import pytest
 from tests._helpers import tool_text
+from things_mcp import url_scheme
 from things_mcp.server import (
     get_todos, get_today, get_inbox, search_todos, search_advanced,
     get_logbook, _parse_logbook_period, _today_fallback, get_tag_usage,
-    bulk_update_todos,
+    bulk_update_todos, update_todo, update_project,
 )
 
 
@@ -331,7 +332,7 @@ async def test_bulk_update_todos_missing_token(mocker):
     mocker.patch('things.token', return_value=None)
     mocker.patch('things_mcp.server.url_scheme.execute_url')
     result = await bulk_update_todos(ids=["u1"], list="Shopping")
-    assert "THINGS_AUTH_TOKEN" in result
+    assert result == url_scheme.AUTH_TOKEN_HELP
 
 
 @pytest.mark.asyncio
@@ -455,3 +456,26 @@ async def test_get_logbook_supports_offset(mocker):
     mocker.patch('things.tasks', return_value=[_completed(f'u{i}', f'L{i}', today) for i in range(5)])
     result = tool_text(await get_logbook(period='7d', limit=2, offset=2))
     assert 'Showing 3-4 of 5 items' in result
+
+
+@pytest.mark.asyncio
+async def test_update_todo_reports_a_missing_auth_token(mocker):
+    """Not a traceback through the MCP boundary, and not a false success."""
+    mocker.patch('things.token', side_effect=RuntimeError("database is locked"))
+    execute = mocker.patch('things_mcp.server.url_scheme.execute_url')
+
+    result = await update_todo(id="u1", title="New title")
+
+    assert result == url_scheme.AUTH_TOKEN_HELP
+    execute.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_update_project_reports_a_missing_auth_token(mocker):
+    mocker.patch('things.token', side_effect=RuntimeError("database is locked"))
+    execute = mocker.patch('things_mcp.server.url_scheme.execute_url')
+
+    result = await update_project(id="p1", title="New title")
+
+    assert result == url_scheme.AUTH_TOKEN_HELP
+    execute.assert_not_called()
