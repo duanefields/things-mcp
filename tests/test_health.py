@@ -74,6 +74,16 @@ class TestHelpers:
             fake_path.return_value.stat.side_effect = OSError
             assert _wal_age_seconds() is None
 
+    def test_wal_age_none_when_database_path_does_not_exist(self, monkeypatch):
+        monkeypatch.setenv("THINGSDB", "/nonexistent/main.sqlite")
+        assert _wal_age_seconds() is None
+
+    def test_wal_age_does_not_open_the_database(self):
+        # The endpoint reports on an unreachable database, so reading the path
+        # must not go through Database(), whose constructor opens SQLite.
+        with patch("things.database.Database", side_effect=AssertionError("opened")):
+            _wal_age_seconds()
+
 
 class TestHealthEndpoint:
     async def test_reports_ok_when_healthy(self):

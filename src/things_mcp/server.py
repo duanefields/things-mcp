@@ -1407,11 +1407,20 @@ def _wal_age_seconds():
 
     A proxy for how recently Things 3 touched its database, and so for how stale a
     read might be. Returns None if the file cannot be located.
+
+    Resolves the path the same way things.py does rather than constructing a
+    Database, which opens SQLite and runs a version query just to expose
+    .filepath. That open raises sqlite3.OperationalError when the database is
+    missing, locked, or privacy-revoked, and AssertionError on an old schema --
+    exactly the states this endpoint exists to report, so it must not be the
+    thing that takes the endpoint down. Catching broadly for the same reason:
+    a health check that raises is worse than one that reports nothing.
     """
     try:
-        wal = Path(f"{things.database.Database().filepath}-wal")
+        db_path = os.getenv("THINGSDB") or things.database.DEFAULT_FILEPATH
+        wal = Path(f"{db_path}-wal")
         return round(time.time() - wal.stat().st_mtime, 1)
-    except (OSError, AttributeError):
+    except Exception:
         return None
 
 
