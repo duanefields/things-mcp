@@ -49,7 +49,7 @@ Test coverage includes:
 This is a Model Context Protocol (MCP) server that bridges Claude Desktop with the Things 3 task management app on macOS. The architecture consists of:
 
 1. **src/things_mcp/server.py** - Main MCP server implementation using FastMCP (3.x)
-   - Defines all MCP tools for interacting with Things (26 tools)
+   - Defines all MCP tools for interacting with Things (27 tools)
    - List views (inbox, today, upcoming, etc.)
    - CRUD operations for todos/projects/areas (Areas have create/read/update — no delete by design; see below)
    - Search and tag operations
@@ -67,7 +67,7 @@ This is a Model Context Protocol (MCP) server that bridges Claude Desktop with t
    - Converts Things database objects to human-readable text
    - Handles nested data (projects within areas, checklist items, etc.)
 
-4. **tests/** - Unit test suite (174 tests)
+4. **tests/** - Unit test suite (299 tests)
    - **conftest.py** - Pytest fixtures and mock data
    - **_helpers.py** - `tool_text()` reads the text channel from a `ToolResult` (or a plain-string result) so text assertions work across both return shapes
    - **test_url_scheme.py** - Tests for URL construction

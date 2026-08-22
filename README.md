@@ -111,6 +111,7 @@ After installation:
 
 ### Basic Operations
 - `add-todos` - Create several todos at once, preserving the order given
+- `get-item` - Get a single item by its ID: todo, project, area, heading, or tag
 - `get-todos` - Get todos, optionally filtered by project
 - `get-projects` - Get all projects
 - `get-areas` - Get all areas
@@ -148,6 +149,12 @@ The list/search read tools (`get-inbox`, `get-today`, `get-upcoming`, `get-anyti
 When neither is set, output is unchanged. When set, a `Showing X-Y of Z items` header is prepended so you know how much more there is. An `offset` past the end is reported distinctly from an empty result.
 
 These same read tools also return **structured content** alongside the human-readable text: MCP clients receive the raw item dicts plus `count`/`total`/`offset`/`limit` under `structured_content`, so data can be consumed programmatically without parsing the formatted text.
+
+### get-item
+- `id` (required) - UUID of the item
+- `include_items` (optional, default: true) - Include contained items: a todo's checklist, a project's todos, an area's projects, a tag's tagged items
+
+The read counterpart to the create tools, which return the new item's ID. Works for todos, projects, areas, headings, and tags. Returns the same `structured_content` shape as the list tools, with a single item in `items`.
 
 ### get-todos
 - `project_uuid` (optional) - Filter todos by project

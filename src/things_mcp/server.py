@@ -377,6 +377,36 @@ async def get_todos(project_uuid: str = None, include_items: bool = True,
     return _paginate_result(todos, format_todo, limit, offset, "No todos found")
 
 @mcp.tool
+async def get_item(id: str, include_items: bool = True) -> ToolResult:
+    """Get a single item by its ID: a todo, project, area, heading, or tag
+
+    The read counterpart to the create tools, which return the new item's ID.
+    Without this you can make something and then only act on it through write
+    tools, or go hunting for it by title.
+
+    Args:
+        id: UUID of the item
+        include_items: Include contained items -- a todo's checklist, a
+            project's todos, an area's projects, a tag's tagged items
+    """
+    item = things.get(id, include_items=include_items)
+    if not item:
+        return _error_result(f"Error: No item found with ID '{id}'")
+
+    formatters = {
+        'to-do': lambda i: format_todo(i),
+        'project': lambda i: format_project(i, include_items),
+        'area': lambda i: format_area(i, include_items),
+        'heading': lambda i: format_heading(i, include_items),
+        'tag': lambda i: format_tag(i, include_items),
+    }
+    formatter = formatters.get(item.get('type'), format_todo)
+    # One item, so the pagination envelope collapses to {items: [item],
+    # count: 1, ...}. Reused anyway to keep the structured shape identical to
+    # every other read tool.
+    return _paginate_result([item], formatter, None, 0, "No item found")
+
+@mcp.tool
 async def get_projects(include_items: bool = False, limit: int = None, offset: int = 0) -> ToolResult:
     """Get all projects from Things
 
