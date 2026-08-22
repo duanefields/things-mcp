@@ -30,12 +30,14 @@ async def test_lists_deadlines(mocker):
 
 
 @pytest.mark.asyncio
-async def test_requests_checklist_items(mocker):
+async def test_does_not_ask_things_py_to_walk_every_project(mocker):
+    """include_items also hydrates each returned project's to-dos and headings,
+    which nothing here renders. Checklists are filled in per page instead."""
     mock_deadlines = mocker.patch('things.deadlines', return_value=[])
 
     await get_deadlines()
 
-    mock_deadlines.assert_called_once_with(include_items=True)
+    mock_deadlines.assert_called_once_with()
 
 
 @pytest.mark.asyncio

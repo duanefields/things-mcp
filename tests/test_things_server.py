@@ -74,7 +74,9 @@ async def test_get_today_includes_checklist(mocker, mock_todo):
 
     assert "Checklist:" in result
     assert "First item" in result
-    mock_today.assert_called_once_with(include_items=True)
+    # No include_items: it also walks every project down into its to-dos, and
+    # nothing renders those. A checklist is filled in per page instead.
+    mock_today.assert_called_once_with()
 
 
 @pytest.mark.asyncio
@@ -127,7 +129,7 @@ async def test_search_todos_includes_checklist(mocker, mock_todo):
 
     assert "Checklist:" in result
     assert "First item" in result
-    mock_search.assert_called_once_with("Test", include_items=True)
+    mock_search.assert_called_once_with("Test")
 
 
 @pytest.mark.asyncio
@@ -140,7 +142,7 @@ async def test_search_advanced_with_type_project(mocker, mock_project):
 
     # Should call things.tasks() with type parameter, not things.todos()
     mock_things_tasks.assert_called_once_with(
-        type="project", include_items=True
+        type="project"
     )
     assert "Test Project" in result
 
@@ -155,7 +157,7 @@ async def test_search_advanced_without_type(mocker, mock_todo):
 
     # Should call things.todos() when no type specified
     mock_things_todos.assert_called_once_with(
-        include_items=True, status="incomplete"
+        status="incomplete"
     )
     assert "Test Todo" in result
 
@@ -502,3 +504,42 @@ async def test_add_tag_does_not_recreate_an_existing_tag(mocker):
 
     assert result == "Tag already exists: Errands (id: OLD-UUID)"
     add.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_checklists_are_hydrated_for_the_returned_page_only(mocker):
+    """Without include_items things.py reports `checklist` as a bool. The page
+    shaper fills in the real items, and only for the rows actually returned --
+    hydrating the whole result is what made get_logbook read 36,301 tasks to
+    show 50."""
+    todos = [{'uuid': f'u{i}', 'title': f'Todo {i}', 'type': 'to-do', 'checklist': True}
+             for i in range(3)]
+    mocker.patch('things.today', return_value=todos)
+    mocker.patch('things.projects', return_value=[])
+    mocker.patch('things.tasks', return_value=[])
+    db = mocker.patch('things_mcp.server.Database')
+    db.return_value.get_checklist_items.return_value = [
+        {'title': 'step one', 'status': 'incomplete'}
+    ]
+
+    result = await get_today(limit=1)
+
+    assert "step one" in tool_text(result)
+    assert db.return_value.get_checklist_items.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_a_projects_contained_items_are_left_out_of_the_payload(mocker):
+    """format_todo renders a to-do's checklist but never a project's items, so
+    carrying them is bytes nothing reads -- 507KB of one get_anytime response."""
+    project = {'uuid': 'p1', 'title': 'A project', 'type': 'project',
+               'items': [{'uuid': 'c1', 'title': 'a child to-do', 'type': 'to-do'}]}
+    mocker.patch('things.today', return_value=[project])
+    mocker.patch('things.projects', return_value=[])
+    mocker.patch('things.tasks', return_value=[])
+
+    result = await get_today()
+
+    (item,) = result.structured_content['items']
+    assert 'items' not in item
+    assert "a child to-do" not in tool_text(result)

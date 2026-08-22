@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import anyio
 import things
+from things.database import Database
 from fastmcp import FastMCP
 from fastmcp.tools.tool import ToolResult
 from starlette.responses import JSONResponse
@@ -80,13 +81,13 @@ def _today_fallback():
     We push None start_dates to the end with a sentinel string.
     """
     regular = things.tasks(
-        start_date=True, start="Anytime", index="todayIndex", include_items=True
+        start_date=True, start="Anytime", index="todayIndex"
     ) or []
     unconfirmed_scheduled = things.tasks(
-        start_date="past", start="Someday", index="todayIndex", include_items=True
+        start_date="past", start="Someday", index="todayIndex"
     ) or []
     unconfirmed_overdue = things.tasks(
-        start_date=False, deadline="past", deadline_suppressed=False, include_items=True
+        start_date=False, deadline="past", deadline_suppressed=False
     ) or []
     result = [*regular, *unconfirmed_scheduled, *unconfirmed_overdue]
     result.sort(key=_today_sort_key)
@@ -126,7 +127,7 @@ def _deadline_only_upcoming(after):
     """
     todos = []
     for todo in (things.tasks(start_date=False, deadline=True,
-                              deadline_suppressed=False, include_items=True) or []):
+                              deadline_suppressed=False) or []):
         if not todo.get('deadline') or todo['deadline'] <= after:
             continue
         todo = dict(todo)
@@ -165,29 +166,78 @@ def _validate_pagination(limit, offset):
     return None
 
 
-def _paginate_format(items, formatter, limit, offset, empty_msg, separator="\n\n---\n\n"):
-    """Format a list with optional limit/offset pagination.
+def _select_page(items, limit, offset):
+    """The rows a limit/offset selects, and the total they were selected from."""
+    items = items or []
+    total = len(items)
+    if offset >= total:
+        return [], total
+    end = total if limit is None else offset + limit
+    return items[offset:end], total
+
+
+def _shape_page(page, formatter):
+    """Give the rows on this page the shape format_todo actually reads.
+
+    Two corrections, both only when format_todo is the formatter, because it is
+    what decides which nested data gets rendered:
+
+    * Drop a project's contained items. format_todo never renders them, so they
+      are bytes nothing will read -- 507KB of the 719KB get_anytime returned,
+      and 28.6KB of a 32.4KB five-result search. (format_project does render
+      them, and reaches here wrapped in a lambda, so it is unaffected.)
+
+    * Fill in a to-do's checklist, which format_todo does render. The list
+      tools ask things.py for tasks without include_items, since that flag also
+      walks every project it returns down through its headings into their
+      to-dos -- the very data stripped above. The walk is not cheap: it made
+      get_logbook hydrate all 36,301 completed tasks to display 50, 12.1s of
+      its 13.8s. Without the flag things.py reports `checklist` as a bool, so
+      the rows that have one can still be filled in for this page alone.
+    """
+    if formatter is not format_todo:
+        return page
+    shaped = []
+    database = None
+    for item in page:
+        if not isinstance(item, dict):
+            shaped.append(item)
+            continue
+        if item.get('type') == 'project':
+            shaped.append({k: v for k, v in item.items() if k != 'items'})
+            continue
+        if item.get('checklist') is not True:
+            shaped.append(item)
+            continue
+        if database is None:
+            try:
+                database = Database()
+            except Exception:
+                logger.warning("Could not open the Things database for checklists",
+                               exc_info=True)
+                return shaped + list(page[len(shaped):])
+        item = dict(item)
+        try:
+            item['checklist'] = database.get_checklist_items(item['uuid'])
+        except Exception:
+            del item['checklist']
+        shaped.append(item)
+    return shaped
+
+
+def _paginate_format(page, total, formatter, limit, offset, empty_msg, separator="\n\n---\n\n"):
+    """Render an already-selected page.
 
     When limit is None and offset is 0, output is byte-identical to the
     pre-pagination behavior (no header). Otherwise a "Showing X-Y of Z
     items" header is prepended so the caller knows there is more to fetch.
     """
-    items = items or []
-    total = len(items)
-
-    # Fast path: preserve exact legacy output when no pagination requested.
     if limit is None and offset == 0:
-        if not items:
-            return empty_msg
-        return separator.join(formatter(i) for i in items)
-
+        return separator.join(formatter(i) for i in page) if page else empty_msg
     if total == 0:
         return empty_msg
     if offset >= total:
         return f"Showing 0 of {total} items (offset {offset} is past the end)"
-
-    end = total if limit is None else offset + limit
-    page = items[offset:end]
     header = f"Showing {offset + 1}-{offset + len(page)} of {total} items\n\n"
     return header + separator.join(formatter(i) for i in page)
 
@@ -198,21 +248,15 @@ def _paginate_result(items, formatter, limit, offset, empty_msg, separator="\n\n
     (channel 2) under structured_content.
 
     This is the pattern for opting a tool into structured output on FastMCP
-    3.x while preserving the nicely formatted text. The text is identical to
-    what _paginate_format produces; structured_content adds the raw item
-    dicts plus pagination metadata so programmatic clients don't have to
-    scrape the prose.
+    3.x while preserving the nicely formatted text. The page is selected and
+    shaped once and both channels are built from it, so the text can never
+    describe something the structured data does not contain.
     """
-    text = _paginate_format(items, formatter, limit, offset, empty_msg, separator)
-    items = items or []
-    total = len(items)
-    end = total if limit is None else offset + limit
-    page = [] if offset >= total else items[offset:end]
-    # structured_content carries the same data the text renders — the full
-    # item dicts (including nested checklist / sub-items). things.py dicts
-    # contain datetime.date objects, which aren't JSON serializable, so coerce
-    # the payload to JSON-safe primitives. Use `limit` to bound large lists;
-    # it shrinks both channels together.
+    page, total = _select_page(items, limit, offset)
+    page = _shape_page(page, formatter)
+    text = _paginate_format(page, total, formatter, limit, offset, empty_msg, separator)
+    # things.py dicts contain datetime.date objects, which aren't JSON
+    # serializable, so coerce the payload to JSON-safe primitives.
     safe_items = json.loads(json.dumps(page, default=str))
     structured = {
         "items": safe_items,
@@ -242,7 +286,7 @@ async def get_inbox(limit: int = None, offset: int = 0) -> ToolResult:
     err = _validate_pagination(limit, offset)
     if err:
         return _error_result(err)
-    todos = things.inbox(include_items=True)
+    todos = things.inbox()
     return _paginate_result(todos, format_todo, limit, offset, "No items found")
 
 @mcp.tool
@@ -257,7 +301,7 @@ async def get_today(limit: int = None, offset: int = 0) -> ToolResult:
     if err:
         return _error_result(err)
     try:
-        todos = things.today(include_items=True)
+        todos = things.today()
     except TypeError:
         todos = _today_fallback()
     todos = list(todos or [])
@@ -284,7 +328,7 @@ async def get_upcoming(limit: int = None, offset: int = 0) -> ToolResult:
     err = _validate_pagination(limit, offset)
     if err:
         return _error_result(err)
-    todos = list(things.upcoming(include_items=True) or [])
+    todos = list(things.upcoming() or [])
     # things.upcoming() is tasks(start_date="future"), and a repeating task's
     # future occurrence is not a row with a start date, so none of them are in
     # there -- on a real database that hid 68 of the 107 rows the app shows.
@@ -312,7 +356,7 @@ async def get_anytime(limit: int = None, offset: int = 0) -> ToolResult:
     err = _validate_pagination(limit, offset)
     if err:
         return _error_result(err)
-    todos = things.anytime(include_items=True)
+    todos = things.anytime()
     # things.anytime() is tasks(start="Anytime") with no type filter, so it also
     # returns every heading in an Anytime project -- 50 of them on a real
     # database. A heading is project structure, not something you can do, and
@@ -334,14 +378,14 @@ async def get_someday(limit: int = None, offset: int = 0) -> ToolResult:
     err = _validate_pagination(limit, offset)
     if err:
         return _error_result(err)
-    todos = things.someday(include_items=True)
+    todos = things.someday()
     if todos is None:
         todos = []
     # Also include tasks that have start="Anytime" but belong to a Someday project
     # (directly or via a heading), since Things.py doesn't inherit project Someday status
     someday_project_ids, heading_to_project = _get_someday_context()
     if someday_project_ids:
-        anytime_todos = things.anytime(include_items=True) or []
+        anytime_todos = things.anytime() or []
         existing_uuids = {t['uuid'] for t in todos}
         for todo in anytime_todos:
             if _is_in_someday_project(todo, someday_project_ids, heading_to_project) and todo['uuid'] not in existing_uuids:
@@ -395,7 +439,7 @@ async def get_logbook(period: str = "7d", limit: int = 50, offset: int = 0) -> T
         )
 
     cutoff = datetime.now() - delta
-    all_completed = things.tasks(status='completed', include_items=True) or []
+    all_completed = things.tasks(status='completed') or []
     in_window = []
     for todo in all_completed:
         stopped = _stop_datetime(todo)
@@ -417,7 +461,7 @@ async def get_trash(limit: int = None, offset: int = 0) -> ToolResult:
     err = _validate_pagination(limit, offset)
     if err:
         return _error_result(err)
-    todos = things.trash(include_items=True)
+    todos = things.trash()
     return _paginate_result(todos, format_todo, limit, offset, "No items found")
 
 # Basic operations
@@ -570,7 +614,7 @@ async def get_tagged_items(tag: str, limit: int = None, offset: int = 0) -> Tool
     err = _validate_pagination(limit, offset)
     if err:
         return _error_result(err)
-    todos = things.todos(tag=tag, include_items=True)
+    todos = things.todos(tag=tag)
     return _paginate_result(todos, format_todo, limit, offset, f"No items found with tag '{tag}'")
 
 @mcp.tool
@@ -741,7 +785,7 @@ async def search_todos(query: str, limit: int = None, offset: int = 0) -> ToolRe
     # Narrow in SQL with the longest token, then apply the rest in Python. One
     # database scan either way, and for a single-token query this is the same
     # query things.search() ran before.
-    candidates = things.search(max(tokens, key=len), include_items=True)
+    candidates = things.search(max(tokens, key=len))
     todos = _rank_search_results(query, candidates)
     return _paginate_result(todos, format_todo, limit, offset, f"No todos found matching '{query}'")
 
@@ -790,9 +834,9 @@ async def search_advanced(
     if type:
         # Use things.tasks() when type is specified since things.todos()
         # hardcodes type="to-do"
-        todos = things.tasks(type=type, include_items=True, **search_params)
+        todos = things.tasks(type=type, **search_params)
     else:
-        todos = things.todos(include_items=True, **search_params)
+        todos = things.todos(**search_params)
     return _paginate_result(todos, format_todo, limit, offset, "No matching todos found")
 
 # Recent items
@@ -808,7 +852,7 @@ async def get_recent(period: str, limit: int = None, offset: int = 0) -> ToolRes
     err = _validate_pagination(limit, offset)
     if err:
         return _error_result(err)
-    todos = things.last(period, include_items=True)
+    todos = things.last(period)
     return _paginate_result(todos, format_todo, limit, offset, f"No items found in the last {period}")
 
 @mcp.tool
@@ -831,21 +875,16 @@ async def get_deadlines(within_days: int = None, limit: int = None, offset: int 
     if within_days is not None and within_days < 0:
         return _error_result("Error: within_days must be zero or a positive integer")
 
-    todos = things.deadlines(include_items=True) or []
+    todos = things.deadlines() or []
     if within_days is not None:
         # Deadlines are 'YYYY-MM-DD' strings, so this compares lexicographically.
         cutoff = (datetime.now().date() + timedelta(days=within_days)).isoformat()
         todos = [t for t in todos if t.get('deadline') and t['deadline'] <= cutoff]
     # include_items is here for a to-do's checklist, which format_todo renders.
     # It also hangs every child off a project that has a deadline, and those
-    # children are not themselves due -- they are neither shown in the text nor
-    # wanted in the structured channel, and a project's own to-dos with
-    # deadlines already appear in this list in their own right.
-    todos = [
-        {k: v for k, v in todo.items() if k != 'items'}
-        if todo.get('type') == 'project' else todo
-        for todo in todos
-    ]
+    # children are not themselves due -- a project's own to-dos with deadlines
+    # already appear in this list in their own right. _paginate_result drops
+    # them, along with every other format_todo list.
     return _paginate_result(todos, format_todo, limit, offset, "No deadlines found")
 
 # --- Creation and ID confirmation -------------------------------------------

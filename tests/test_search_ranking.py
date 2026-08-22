@@ -70,7 +70,7 @@ class TestSearchTodos:
 
         await search_todos('the dentist')
 
-        mock_search.assert_called_once_with('dentist', include_items=True)
+        mock_search.assert_called_once_with('dentist')
 
     @pytest.mark.asyncio
     async def test_preserves_the_case_the_user_typed(self, mocker):
@@ -79,7 +79,7 @@ class TestSearchTodos:
 
         await search_todos('Ärzte')
 
-        mock_search.assert_called_once_with('Ärzte', include_items=True)
+        mock_search.assert_called_once_with('Ärzte')
 
     @pytest.mark.asyncio
     async def test_area_only_matches_are_dropped(self, mocker):
