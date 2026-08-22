@@ -6,11 +6,14 @@ separately -- and inside a project it is relative to a todo's own heading, so it
 does not even reproduce the heading grouping.
 """
 
+from datetime import datetime
+
 import pytest
 
 from tests._helpers import tool_text
 from things_mcp.formatters import display_order, schedule_group
 from things_mcp.server import (
+    get_today,
     _project_display_order, get_anytime, get_todos, get_upcoming,
 )
 
@@ -294,3 +297,48 @@ def test_upcoming_interleaves_projected_repeaters_with_real_rows():
     shuffled = [day[3], day[5], day[0], day[4], day[2], day[1]]
 
     assert [t['uuid'] for t in display_order(shuffled)] == ['a', 'b', 'c', 'd', 'e', 'f']
+
+
+@pytest.mark.asyncio
+async def test_today_keeps_the_order_the_app_shows(mocker):
+    """Real values from the app's Today list, confirmed against the screen
+    2026-08-22.
+
+    Today is ordered by todayIndex, which is the position each item was dragged
+    into -- not by urgency. The two items actually due today sit at 2 and 5,
+    and that is correct: the tool reports the arrangement, it does not rank it.
+    """
+    today = [
+        {'uuid': 'wings', 'title': 'Smoke chicken wings for dinner before',
+         'type': 'to-do', 'today_index': -7438, 'start_date': '2026-08-22'},
+        {'uuid': 'latch', 'title': 'Fix garage entry door latch', 'type': 'to-do',
+         'today_index': -6299, 'start_date': '2026-08-22', 'deadline': '2026-08-22'},
+        {'uuid': 'sprinkler', 'title': 'Check sprinkler system regularly',
+         'type': 'to-do', 'today_index': -5758, 'start_date': '2026-08-19'},
+        {'uuid': 'charge', 'title': 'Charge to 90%', 'type': 'to-do',
+         'today_index': -5417, 'start_date': '2026-08-22'},
+        {'uuid': 'zztop', 'title': '🎸 ZZ Top', 'type': 'project',
+         'today_index': -5108, 'start_date': '2026-08-22', 'deadline': '2026-08-22'},
+    ]
+    mocker.patch('things.projects', return_value=[])
+    mocker.patch('things.tasks', return_value=[])
+    mocker.patch('things_mcp.server.next_occurrences', return_value=[
+        # A due repeater forces the re-sort, which must not disturb the app order.
+        dict(today[2], uuid='due-repeater', title='A due repeater',
+             today_index=-6000, repeating=True),
+    ])
+    mocker.patch('things.today', return_value=list(today))
+    mocker.patch('things_mcp.server.datetime',
+                 **{'now.return_value': datetime(2026, 8, 22)})
+
+    result = await get_today()
+
+    ordered = [i['title'] for i in result.structured_content['items']]
+    assert ordered == [
+        'Smoke chicken wings for dinner before',
+        'Fix garage entry door latch',
+        'A due repeater',
+        'Check sprinkler system regularly',
+        'Charge to 90%',
+        '🎸 ZZ Top',
+    ]
