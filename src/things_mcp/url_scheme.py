@@ -268,6 +268,8 @@ def add_project(title: str, notes: Optional[str] = None, when: Optional[str] = N
     return construct_url('add-project', {k: v for k, v in params.items() if v is not None})
 
 def update_todo(id: str, title: Optional[str] = None, notes: Optional[str] = None,
+                prepend_notes: Optional[str] = None,
+                append_notes: Optional[str] = None,
                 when: Optional[str] = None, deadline: Optional[str] = None,
                 tags: Optional[list[str]] = None,
                 add_tags: Optional[list[str]] = None,
@@ -283,7 +285,9 @@ def update_todo(id: str, title: Optional[str] = None, notes: Optional[str] = Non
     Args:
         id: UUID of the todo to update
         title: New title
-        notes: New notes
+        notes: New notes (replaces existing)
+        prepend_notes: Text to add above the existing notes
+        append_notes: Text to add below the existing notes
         when: Reschedule the todo. Accepts:
             - Keywords: "today", "tomorrow", "evening", "anytime", "someday"
             - Date: "yyyy-mm-dd" or natural language ("in 3 days", "next tuesday")
@@ -305,6 +309,8 @@ def update_todo(id: str, title: Optional[str] = None, notes: Optional[str] = Non
         'id': id,
         'title': title,
         'notes': notes,
+        'prepend-notes': prepend_notes,
+        'append-notes': append_notes,
         'when': when,
         'deadline': deadline,
         'tags': tags,
@@ -322,6 +328,8 @@ def update_todo(id: str, title: Optional[str] = None, notes: Optional[str] = Non
     return construct_url('update', {k: v for k, v in params.items() if v is not None})
 
 def update_project(id: str, title: Optional[str] = None, notes: Optional[str] = None,
+                   prepend_notes: Optional[str] = None,
+                   append_notes: Optional[str] = None,
                    when: Optional[str] = None, deadline: Optional[str] = None,
                    tags: Optional[list[str]] = None, completed: Optional[bool] = None,
                    canceled: Optional[bool] = None) -> str:
@@ -330,7 +338,9 @@ def update_project(id: str, title: Optional[str] = None, notes: Optional[str] = 
     Args:
         id: UUID of the project to update
         title: New title
-        notes: New notes
+        notes: New notes (replaces existing)
+        prepend_notes: Text to add above the existing notes
+        append_notes: Text to add below the existing notes
         when: Reschedule the project. Accepts:
             - Keywords: "today", "tomorrow", "evening", "anytime", "someday"
             - Date: "yyyy-mm-dd" or natural language ("in 3 days", "next tuesday")
@@ -344,6 +354,8 @@ def update_project(id: str, title: Optional[str] = None, notes: Optional[str] = 
         'id': id,
         'title': title,
         'notes': notes,
+        'prepend-notes': prepend_notes,
+        'append-notes': append_notes,
         'when': when,
         'deadline': deadline,
         'tags': tags,

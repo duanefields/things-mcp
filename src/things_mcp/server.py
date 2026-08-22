@@ -1252,6 +1252,8 @@ async def update_todo(
     id: str,
     title: str = None,
     notes: str = None,
+    prepend_notes: str = None,
+    append_notes: str = None,
     when: str = None,
     deadline: str = None,
     tags: List[str] = None,
@@ -1271,7 +1273,9 @@ async def update_todo(
     Args:
         id: ID of the todo to update
         title: New title
-        notes: New notes
+        notes: New notes (replaces the existing notes entirely)
+        prepend_notes: Text to add above the existing notes, leaving them intact
+        append_notes: Text to add below the existing notes, leaving them intact
         when: New schedule (today, tomorrow, evening, anytime, someday, or YYYY-MM-DD).
             Use YYYY-MM-DD@HH:MM format to add a reminder (e.g., 2024-01-15@14:30)
         deadline: New deadline (YYYY-MM-DD)
@@ -1292,6 +1296,8 @@ async def update_todo(
             id=id,
             title=title,
             notes=notes,
+            prepend_notes=prepend_notes,
+            append_notes=append_notes,
             when=when,
             deadline=deadline,
             tags=tags,
@@ -1394,6 +1400,8 @@ async def update_project(
     id: str,
     title: str = None,
     notes: str = None,
+    prepend_notes: str = None,
+    append_notes: str = None,
     when: str = None,
     deadline: str = None,
     tags: List[str] = None,
@@ -1405,7 +1413,9 @@ async def update_project(
     Args:
         id: ID of the project to update
         title: New title
-        notes: New notes
+        notes: New notes (replaces the existing notes entirely)
+        prepend_notes: Text to add above the existing notes, leaving them intact
+        append_notes: Text to add below the existing notes, leaving them intact
         when: New schedule (today, tomorrow, evening, anytime, someday, or YYYY-MM-DD).
             Use YYYY-MM-DD@HH:MM format to add a reminder (e.g., 2024-01-15@14:30)
         deadline: New deadline (YYYY-MM-DD)
@@ -1418,6 +1428,8 @@ async def update_project(
             id=id,
             title=title,
             notes=notes,
+            prepend_notes=prepend_notes,
+            append_notes=append_notes,
             when=when,
             deadline=deadline,
             tags=tags,

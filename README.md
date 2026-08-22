@@ -188,6 +188,13 @@ Includes projects as well as todos, sorted earliest deadline first, so overdue i
 ### get-tag-usage
 - `only_unused` (optional, default: false) - Return only tags that no item references (cleanup candidates)
 
+### update-todo / update-project (notes)
+- `notes` - Replace the notes entirely
+- `prepend_notes` - Add text above the existing notes, leaving them intact
+- `append_notes` - Add text below the existing notes, leaving them intact
+
+`append-notes` and `prepend-notes` are documented Things URL scheme parameters, so appending no longer means read, concatenate, write back.
+
 ### update-todo (checklist & tags)
 - `tags` - Replace all tags on the todo
 - `add_tags` - Append tags without removing existing ones

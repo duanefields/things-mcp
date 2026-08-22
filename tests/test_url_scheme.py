@@ -512,3 +512,38 @@ class TestAuthTokenGuard:
     def test_non_update_commands_never_look_up_a_token(self, _mock_token):
         url = url_scheme.construct_url('add', {'title': 'Test'})
         assert url == "things:///add?title=Test"
+
+
+class TestNotesAppendPrepend:
+    """append-notes / prepend-notes are documented Things URL scheme parameters,
+    so notes edits no longer have to be destructive full replacements."""
+
+    @patch('things.token', return_value="tok")
+    def test_update_todo_append_notes(self, _mock_token):
+        url = update_todo(id="123", append_notes="Follow-up")
+        assert "append-notes=Follow-up" in url
+        assert "notes=" not in url.replace("append-notes=", "")
+
+    @patch('things.token', return_value="tok")
+    def test_update_todo_prepend_notes(self, _mock_token):
+        url = update_todo(id="123", prepend_notes="Heads up")
+        assert "prepend-notes=Heads%20up" in url
+
+    @patch('things.token', return_value="tok")
+    def test_update_todo_notes_still_replaces(self, _mock_token):
+        url = update_todo(id="123", notes="Replaced")
+        assert "notes=Replaced" in url
+        assert "append-notes" not in url
+        assert "prepend-notes" not in url
+
+    @patch('things.token', return_value="tok")
+    def test_update_project_append_and_prepend(self, _mock_token):
+        url = update_project(id="123", append_notes="After", prepend_notes="Before")
+        assert "append-notes=After" in url
+        assert "prepend-notes=Before" in url
+
+    @patch('things.token', return_value="tok")
+    def test_notes_append_combines_with_other_fields(self, _mock_token):
+        url = update_todo(id="123", append_notes="More", when="today")
+        assert "append-notes=More" in url
+        assert "when=today" in url
