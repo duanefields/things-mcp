@@ -137,3 +137,23 @@ async def test_a_todo_keeps_its_checklist(mocker):
 
     assert result.structured_content['items'][0]['checklist']
     assert 'Passport' in tool_text(result)
+
+
+@pytest.mark.asyncio
+async def test_area_uuid_counts_the_inherited_area(mocker):
+    """"What work is due this week" in one call. The area is inherited from an
+    item's project, which is where nearly every item gets one."""
+    lookup = ({'proj': 'the-area'}, {}, {'the-area': 'Work'})
+    mocker.patch('things_mcp.server.parent_lookup', return_value=lookup)
+    mocker.patch('things_mcp.areas.parent_lookup', return_value=lookup)
+    mocker.patch('things.deadlines', return_value=[
+        {'uuid': 'a', 'title': 'In a work project', 'type': 'to-do',
+         'project': 'proj', 'deadline': '2026-08-26'},
+        {'uuid': 'b', 'title': 'Somewhere else', 'type': 'to-do',
+         'deadline': '2026-08-26'},
+    ])
+
+    text = tool_text(await get_deadlines(area_uuid='the-area'))
+
+    assert "In a work project" in text
+    assert "Somewhere else" not in text

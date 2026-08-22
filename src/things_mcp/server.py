@@ -988,16 +988,26 @@ async def get_recent(period: str, limit: int = None, offset: int = 0) -> ToolRes
     return _paginate_result(todos, format_todo, limit, offset, f"No items found in the last {period}")
 
 @mcp.tool
-async def get_deadlines(within_days: int = None, limit: int = None, offset: int = 0) -> ToolResult:
+async def get_deadlines(within_days: int = None, area_uuid: str = None,
+                        limit: int = None, offset: int = 0) -> ToolResult:
     """Get incomplete items that have a deadline, earliest first
 
     Answers "what is due, what is overdue" without pulling a list and filtering
     client-side. Overdue items sort to the front, since they have the earliest
     deadlines. Includes projects as well as todos.
 
+    With within_days and area_uuid together this answers "what work is due this
+    week" in one call, which is otherwise a whole area pulled and filtered by
+    hand.
+
+    Rows carry full notes, tags and effective_area -- the area an item falls
+    under, inherited from its project when it has none of its own.
+
     Args:
         within_days: Only items due within this many days from today. Overdue
             items are always included. Default: every deadline.
+        area_uuid: Only items under this area, counting the area inherited
+            from an item's project -- which is where most items get theirs.
         limit: Maximum number of items to return (default: all)
         offset: Number of items to skip from the start (default: 0)
     """
@@ -1008,6 +1018,9 @@ async def get_deadlines(within_days: int = None, limit: int = None, offset: int 
         return _error_result("Error: within_days must be zero or a positive integer")
 
     todos = things.deadlines() or []
+    if area_uuid:
+        todos = [t for t in annotate_areas(todos)
+                 if t.get('effective_area') == area_uuid]
     if within_days is not None:
         # Deadlines are 'YYYY-MM-DD' strings, so this compares lexicographically.
         cutoff = (datetime.now().date() + timedelta(days=within_days)).isoformat()
