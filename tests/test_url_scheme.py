@@ -21,8 +21,10 @@ class TestExecuteUrl:
 
         execute_url("things:///add?title=Test")
 
+        # The URL is single-quoted for the shell layer inside `do shell script`,
+        # so nothing in it can be read as shell syntax.
         mock_run.assert_called_once_with(
-            ['osascript', '-e', 'do shell script "open -g \\"things:///add?title=Test\\""'],
+            ['osascript', '-e', 'do shell script "open -g \'things:///add?title=Test\'"'],
             check=True, capture_output=True, text=True
         )
 

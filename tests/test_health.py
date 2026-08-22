@@ -139,3 +139,48 @@ class TestHealthEndpoint:
     async def test_no_writes_yet_is_not_an_error(self, ambient_health):
         body = await health_json()
         assert body["last_write_dispatch"] == {"at": None, "ok": None, "error": None}
+
+
+class TestFailureIsNotPublishedVerbatim:
+    """/health is unauthenticated. str(CalledProcessError) embeds the whole argv,
+    and a Things URL carries the auth-token plus the title and notes of the item
+    being written, so the raw exception must never reach the response."""
+
+    async def test_error_omits_the_dispatched_url(self):
+        url = "things:///update?id=x&auth-token=SUPERSECRET&title=Private"
+        with patch(
+            "subprocess.run",
+            side_effect=subprocess.CalledProcessError(1, ["osascript", "-e", url]),
+        ):
+            with pytest.raises(subprocess.CalledProcessError):
+                url_scheme.execute_url(url)
+
+        with patch("things_mcp.server._things_is_running", return_value=True), patch(
+            "things_mcp.server._wal_age_seconds", return_value=1.0
+        ):
+            body = await health_json()
+
+        error = body["last_write_dispatch"]["error"]
+        assert error == "CalledProcessError: exit status 1"
+        assert "SUPERSECRET" not in error
+        assert "auth-token" not in error
+        assert "things:///" not in error
+
+    async def test_a_non_subprocess_failure_reports_only_its_type(self):
+        with patch("subprocess.run", side_effect=OSError("/private/path not found")):
+            with pytest.raises(OSError):
+                url_scheme.execute_url("things:///add?title=x")
+
+        assert url_scheme.last_dispatch()["error"] == "OSError"
+
+    async def test_a_failed_write_is_still_visible_as_a_failure(self):
+        # Sanitizing must not hide that a write failed at all.
+        with patch(
+            "subprocess.run", side_effect=subprocess.CalledProcessError(2, "open")
+        ):
+            with pytest.raises(subprocess.CalledProcessError):
+                url_scheme.execute_url("things:///add?title=x")
+
+        record = url_scheme.last_dispatch()
+        assert record["ok"] is False
+        assert record["error"]

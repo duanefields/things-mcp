@@ -422,7 +422,11 @@ This exists because the two most likely failures are silent. If Things 3 is not
 running, writes are dispatched into nothing and appear to succeed. If the
 database stops being updated, reads keep working and quietly return stale data.
 The endpoint is intentionally unauthenticated so a monitor can poll it without
-holding a token; it exposes no task data.
+holding a token, so it must expose no task data. `error` is deliberately a
+summary — an exception type and exit status — rather than the exception text:
+`str(CalledProcessError)` embeds the whole command line, and a Things URL
+carries the auth-token along with the title and notes of the item being
+written. The full exception goes to the log instead.
 
 ### Authentication
 

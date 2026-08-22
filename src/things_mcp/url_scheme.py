@@ -1,5 +1,6 @@
 import json as _json
 import logging
+import shlex
 import urllib.parse
 import subprocess
 import time
@@ -71,22 +72,41 @@ def last_dispatch() -> Dict[str, Any]:
     return dict(_last_dispatch)
 
 
+def _publishable_failure(exc: Exception) -> str:
+    """Describe a dispatch failure in terms safe to serve from /health.
+
+    /health is unauthenticated, so this must not carry the URL that was
+    dispatched. str(subprocess.CalledProcessError) embeds the entire argv, and a
+    Things URL carries the auth-token along with the title and notes of the item
+    being written. The full exception goes to the log, which is local and
+    privileged; only this summary is published.
+    """
+    if isinstance(exc, subprocess.CalledProcessError):
+        return f"CalledProcessError: exit status {exc.returncode}"
+    return type(exc).__name__
+
+
 def execute_url(url: str) -> None:
     """Execute a Things URL without bringing Things to the foreground."""
     _last_dispatch["at"] = time.time()
     try:
         try:
-            # Use 'do shell script' with 'open -g' to open in background
+            # Use 'do shell script' with 'open -g' to open in background.
+            # construct_url percent-encodes every parameter value with safe='',
+            # so nothing shell-special survives into the URL -- but quote it for
+            # both layers anyway rather than resting the whole thing on that.
+            shell_command = f"open -g {shlex.quote(url)}"
+            escaped = shell_command.replace('\\', '\\\\').replace('"', '\\"')
             subprocess.run([
-                'osascript', '-e',
-                f'do shell script "open -g \\"{url}\\""'
+                'osascript', '-e', f'do shell script "{escaped}"'
             ], check=True, capture_output=True, text=True)
         except subprocess.CalledProcessError:
             # Fallback - still try with open -g directly
             subprocess.run(['open', '-g', url], check=True)
     except Exception as exc:
+        logger.warning("Things URL dispatch failed: %s", exc)
         _last_dispatch["ok"] = False
-        _last_dispatch["error"] = str(exc)
+        _last_dispatch["error"] = _publishable_failure(exc)
         raise
     else:
         _last_dispatch["ok"] = True

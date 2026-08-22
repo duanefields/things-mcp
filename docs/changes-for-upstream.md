@@ -131,6 +131,10 @@ written, the outcome of the last write dispatch, and the interpreter version. Th
 Group 1: the failures it surfaces are silent in any deployment. If Things is not running, writes are
 dispatched into nothing and appear to succeed.
 
+Because the endpoint is unauthenticated, the dispatch `error` is a summary — exception type and exit
+status — and never the exception text. `str(CalledProcessError)` embeds the whole command line, and
+a Things URL carries the auth-token along with the title and notes of the item being written.
+
 ### Deployment material
 
 `docs/deployment-macos.md` and `scripts/`. Entirely optional, and specific to running on macOS as a
