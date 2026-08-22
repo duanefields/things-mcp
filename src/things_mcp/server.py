@@ -418,9 +418,19 @@ async def get_item(id: str, include_items: bool = True) -> ToolResult:
         include_items: Include contained items -- a todo's checklist, a
             project's todos, an area's projects, a tag's tagged items
     """
-    item = things.get(id, include_items=include_items)
+    item = things.get(id)
     if not item:
         return _error_result(f"Error: No item found with ID '{id}'")
+
+    # Only a to-do needs things.get to fetch its nested content -- the checklist,
+    # which format_todo renders. Every other formatter queries its own contents:
+    # format_area calls things.projects/things.todos, format_project and
+    # format_heading call things.todos. Asking things.get for an area's items
+    # therefore serializes every project and to-do it holds into
+    # structured_content for nothing -- measured at 213KB against a 134-byte
+    # area, which overran the response limit outright.
+    if include_items and item.get('type') == 'to-do':
+        item = things.get(id, include_items=True) or item
 
     formatters = {
         'to-do': lambda i: format_todo(i),
@@ -768,6 +778,16 @@ async def get_deadlines(within_days: int = None, limit: int = None, offset: int 
         # Deadlines are 'YYYY-MM-DD' strings, so this compares lexicographically.
         cutoff = (datetime.now().date() + timedelta(days=within_days)).isoformat()
         todos = [t for t in todos if t.get('deadline') and t['deadline'] <= cutoff]
+    # include_items is here for a to-do's checklist, which format_todo renders.
+    # It also hangs every child off a project that has a deadline, and those
+    # children are not themselves due -- they are neither shown in the text nor
+    # wanted in the structured channel, and a project's own to-dos with
+    # deadlines already appear in this list in their own right.
+    todos = [
+        {k: v for k, v in todo.items() if k != 'items'}
+        if todo.get('type') == 'project' else todo
+        for todo in todos
+    ]
     return _paginate_result(todos, format_todo, limit, offset, "No deadlines found")
 
 # --- Creation and ID confirmation -------------------------------------------

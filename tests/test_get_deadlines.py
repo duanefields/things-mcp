@@ -104,3 +104,34 @@ async def test_invalid_limit_is_an_error(mocker):
     mocker.patch('things.deadlines', return_value=[])
 
     assert "limit must be a positive integer" in tool_text(await get_deadlines(limit=0))
+
+
+@pytest.mark.asyncio
+async def test_a_project_does_not_drag_its_children_into_the_payload(mocker):
+    """include_items is for a to-do's checklist. On a project it hangs every
+    child off an item that is due, and those children are not themselves due --
+    format_todo does not render them, and a project's own to-dos with deadlines
+    already appear in this list in their own right."""
+    project = _dated('Gage College', 2)
+    project['type'] = 'project'
+    project['items'] = [{'uuid': 'child', 'title': 'Pay balance', 'type': 'to-do'}]
+    mocker.patch('things.deadlines', return_value=[project])
+    mocker.patch('things.todos', return_value=[])
+    mocker.patch('things.tasks', return_value=[])
+
+    result = await get_deadlines()
+
+    assert 'items' not in result.structured_content['items'][0]
+    assert 'Pay balance' not in tool_text(result)
+
+
+@pytest.mark.asyncio
+async def test_a_todo_keeps_its_checklist(mocker):
+    todo = _dated('Packing list', 2)
+    todo['checklist'] = [{'title': 'Passport', 'status': 'incomplete'}]
+    mocker.patch('things.deadlines', return_value=[todo])
+
+    result = await get_deadlines()
+
+    assert result.structured_content['items'][0]['checklist']
+    assert 'Passport' in tool_text(result)

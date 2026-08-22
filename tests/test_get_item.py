@@ -21,7 +21,8 @@ async def test_formats_a_todo(mocker, mock_todo):
 
 
 @pytest.mark.asyncio
-async def test_passes_include_items_through_to_things(mocker, mock_todo):
+async def test_the_first_lookup_never_asks_for_nested_items(mocker, mock_todo):
+    """Type is unknown until the item is read, and only a to-do needs them."""
     mock_get = mocker.patch('things.get', return_value=mock_todo)
 
     await get_item('test-todo-uuid', include_items=False)
@@ -29,7 +30,32 @@ async def test_passes_include_items_through_to_things(mocker, mock_todo):
     # format_todo makes its own things.get calls for the parent project and
     # area, so only the first call is ours.
     assert mock_get.call_args_list[0].args == ('test-todo-uuid',)
-    assert mock_get.call_args_list[0].kwargs == {'include_items': False}
+    assert mock_get.call_args_list[0].kwargs == {}
+
+
+@pytest.mark.asyncio
+async def test_a_todo_is_re_read_for_its_checklist(mocker, mock_todo):
+    mock_get = mocker.patch('things.get', return_value=mock_todo)
+
+    await get_item('test-todo-uuid', include_items=True)
+
+    assert mocker.call('test-todo-uuid', include_items=True) in mock_get.call_args_list
+
+
+@pytest.mark.asyncio
+async def test_an_area_is_never_asked_for_its_nested_tree(mocker, mock_area):
+    """The bug this guards against: things.get(area, include_items=True) returns
+    every project and to-do the area holds. Measured at 213KB against a
+    134-byte area, which overran the response limit -- while format_area does
+    not read that tree at all, it queries its own contents."""
+    mock_get = mocker.patch('things.get', return_value=mock_area)
+    mocker.patch('things.projects', return_value=[])
+    mocker.patch('things.todos', return_value=[])
+
+    result = await get_item('test-area-uuid', include_items=True)
+
+    assert all(c.kwargs.get('include_items') is None for c in mock_get.call_args_list)
+    assert 'items' not in result.structured_content['items'][0]
 
 
 @pytest.mark.asyncio
