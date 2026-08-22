@@ -21,6 +21,20 @@ async def health_json():
     return json.loads(response.body)
 
 
+@pytest.fixture
+def ambient_health():
+    """Pin the machine-dependent halves of the report.
+
+    Tests that care only about the dispatch record still render the whole
+    response, and without this they read the real process list and the real
+    database file.
+    """
+    with patch("things_mcp.server._things_is_running", return_value=True), patch(
+        "things_mcp.server._wal_age_seconds", return_value=12.0
+    ):
+        yield
+
+
 class TestDispatchRecording:
     def test_records_success(self):
         with patch("subprocess.run"):
@@ -111,7 +125,7 @@ class TestHealthEndpoint:
             body = await health_json()
         assert body["status"] == "degraded"
 
-    async def test_surfaces_a_failed_write(self):
+    async def test_surfaces_a_failed_write(self, ambient_health):
         with patch(
             "subprocess.run", side_effect=subprocess.CalledProcessError(1, "open")
         ):
@@ -122,6 +136,6 @@ class TestHealthEndpoint:
         assert body["last_write_dispatch"]["at"] is not None
         assert body["last_write_dispatch"]["error"]
 
-    async def test_no_writes_yet_is_not_an_error(self):
+    async def test_no_writes_yet_is_not_an_error(self, ambient_health):
         body = await health_json()
         assert body["last_write_dispatch"] == {"at": None, "ok": None, "error": None}

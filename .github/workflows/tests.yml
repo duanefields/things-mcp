@@ -1,0 +1,28 @@
+name: tests
+
+on:
+  push:
+    branches: [master, production]
+  pull_request:
+
+jobs:
+  pytest:
+    # The suite mocks Things entirely, so it runs anywhere. Ubuntu is the point
+    # as much as the convenience: a machine with no Things database is the only
+    # place a test that quietly reaches the real one shows up as a failure.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Run tests
+        run: uv run --python ${{ matrix.python-version }} --extra test pytest -q
