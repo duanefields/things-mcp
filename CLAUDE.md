@@ -88,6 +88,12 @@ This is a Model Context Protocol (MCP) server that bridges Claude Desktop with t
      one occurrence, which is what editing that row in the app does too
    - Templates are fetched with `things.tasks(uuid=...)`, which routes to `get_task_by_uuid` —
      the one query in things.py that matches on uuid alone and so will return a template
+   - **A template's `deadline` column is not a date.** Every template carries the same sentinel
+     (262213760), which things.py decodes as an ordinary Things date and returns as `1953-01-01`.
+     The real deadline is relative to the occurrence and lives in `rt1_recurrenceRule` — a plain
+     XML plist, not an opaque blob — whose `ts` key is the negated number of days after the
+     occurrence. `_deadline_for` parses it and returns None rather than a guess if it won't parse.
+     Verified against the app for offsets of 0, 1, 7, 10 and 14 days
 
 5. **tests/** - Unit test suite (398 tests)
    - **conftest.py** - Pytest fixtures and mock data

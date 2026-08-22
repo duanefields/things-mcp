@@ -32,6 +32,8 @@ Two things make the projection safe to merge into the existing lists:
 """
 
 import logging
+import plistlib
+from datetime import date, timedelta
 
 import things
 from things.database import (
@@ -45,6 +47,8 @@ logger = logging.getLogger(__name__)
 # repeater generates nothing, so it has nothing upcoming to show.
 _NEXT_OCCURRENCE_SQL = f"""
     SELECT uuid,
+           deadline,
+           rt1_recurrenceRule AS rule,
            {convert_thingsdate_sql_expression_to_isodate('rt1_nextInstanceStartDate')}
                AS start_date
     FROM TMTask
@@ -54,6 +58,32 @@ _NEXT_OCCURRENCE_SQL = f"""
       AND trashed = 0
       AND (rt1_instanceCreationPaused IS NULL OR rt1_instanceCreationPaused = 0)
 """
+
+
+def _deadline_for(occurrence, rule):
+    """The deadline of a projected occurrence, or None if it has none.
+
+    A template's `deadline` column is not a date. Every template in the
+    database carries the same sentinel (262213760), which things.py decodes as
+    an ordinary Things date and hands back as 1953-01-01 -- a fabricated
+    deadline on every repeating task with one.
+
+    The real deadline is relative to the occurrence, and lives in the
+    recurrence rule, which is a plain XML plist rather than an opaque blob. Its
+    `ts` key is the negated number of days after the occurrence that the
+    deadline falls. Verified against the app for offsets of 0, 1, 7, 10 and 14
+    days across every repeating task with a deadline showing in Upcoming.
+
+    Returns None rather than a guess if the rule will not parse -- no deadline
+    is a smaller lie than a wrong one.
+    """
+    try:
+        ts = plistlib.loads(rule)['ts']
+        return (date.fromisoformat(occurrence) + timedelta(days=-ts)).isoformat()
+    except Exception:
+        logger.warning("Could not read the deadline offset from a recurrence rule",
+                       exc_info=True)
+        return None
 
 
 def next_occurrences():
@@ -86,6 +116,10 @@ def next_occurrences():
         if not task:
             continue
         task['start_date'] = row['start_date']
+        # things.py read the sentinel in the deadline column as a real date.
+        task['deadline'] = (
+            _deadline_for(row['start_date'], row['rule']) if row['deadline'] else None
+        )
         task['repeating'] = True
         occurrences.append(task)
     return occurrences

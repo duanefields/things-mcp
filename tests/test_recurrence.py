@@ -4,6 +4,8 @@ things.py filters every repeating task out of every list query, so Today and
 Upcoming used to come back missing most of what the app shows. These pin the
 projection that fills the hole -- see src/things_mcp/recurrence.py.
 """
+import plistlib
+
 import pytest
 from tests._helpers import tool_text
 from things_mcp.formatters import format_todo
@@ -44,8 +46,9 @@ def repeating(mocker):
     )
     tasks = mocker.patch('things.tasks', side_effect=lambda uuid: _template(uuid))
 
-    def schedule(date, uuid="tmpl-uuid"):
-        rows.append({'uuid': uuid, 'start_date': date})
+    def schedule(date, uuid="tmpl-uuid", deadline=None, rule=None):
+        rows.append({'uuid': uuid, 'start_date': date,
+                     'deadline': deadline, 'rule': rule})
         return tasks
 
     return schedule
@@ -79,7 +82,10 @@ def test_next_occurrences_skips_a_template_that_cannot_be_read(mocker):
     mocker.patch(
         'things_mcp.recurrence.Database',
         return_value=mocker.Mock(
-            execute_query=lambda sql: [{'uuid': 'gone', 'start_date': '2026-09-01'}]
+            execute_query=lambda sql: [
+                {'uuid': 'gone', 'start_date': '2026-09-01',
+                 'deadline': None, 'rule': None}
+            ]
         ),
     )
     mocker.patch('things.tasks', side_effect=ValueError("no such task"))
@@ -166,3 +172,37 @@ def test_format_todo_says_nothing_about_repeating_for_an_ordinary_todo():
     text = format_todo(dict(_template(), start_date="2026-09-01"))
 
     assert "Repeating" not in text
+
+
+# The sentinel every repeating template carries in its deadline column, and the
+# rule plist Things stores alongside it. `ts` is the negated number of days
+# after the occurrence that the deadline falls -- here, 10.
+DEADLINE_SENTINEL = 262213760
+RULE_TS_MINUS_10 = plistlib.dumps({'ts': -10, 'rrv': 4})
+
+
+def test_next_occurrences_computes_the_deadline_from_the_recurrence_rule(repeating):
+    """The deadline column is a sentinel, not a date: things.py decodes it as
+    1953-01-01 and would report that as a real deadline."""
+    repeating("2026-09-16", deadline=DEADLINE_SENTINEL, rule=RULE_TS_MINUS_10)
+
+    (occurrence,) = next_occurrences()
+
+    assert occurrence['deadline'] == "2026-09-26"
+
+
+def test_next_occurrences_leaves_a_deadline_off_when_the_template_has_none(repeating):
+    repeating("2026-09-16", deadline=None, rule=None)
+
+    (occurrence,) = next_occurrences()
+
+    assert occurrence['deadline'] is None
+
+
+def test_next_occurrences_drops_a_deadline_it_cannot_decode(repeating):
+    """No deadline is a smaller lie than a fabricated one."""
+    repeating("2026-09-16", deadline=DEADLINE_SENTINEL, rule=b"not a plist")
+
+    (occurrence,) = next_occurrences()
+
+    assert occurrence['deadline'] is None
