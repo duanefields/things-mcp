@@ -57,6 +57,11 @@ This is a Model Context Protocol (MCP) server that bridges Claude Desktop with t
      rule were repeated across 3 and 8 tool descriptions, ~670 tokens of duplication permanently in
      context. Said once there it is shorter and stronger. Keep per-tool text for what decides a
      single call; put standing facts in `INSTRUCTIONS`
+   - **Server icon**: `icons=[ICON]` on the constructor, an SVG checkmark inlined as a base64
+     data URI. `mcp.types.Icon.src` is a URI, not a character, so an emoji cannot be passed
+     directly — and an emoji inside an SVG `<text>` renders with whatever font the viewer has,
+     which is why this is a drawn path. Verified to reach `serverInfo.icons` on initialize;
+     whether any client displays it is unconfirmed
    - Defines all MCP tools for interacting with Things (32 tools)
    - List views (inbox, today, upcoming, etc.)
    - CRUD operations for todos/projects/areas (Areas have create/read/update — no delete by design; see below)

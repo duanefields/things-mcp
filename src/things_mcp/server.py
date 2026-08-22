@@ -1,4 +1,5 @@
 from typing import List
+import base64
 import json
 import logging
 import os
@@ -13,6 +14,7 @@ import anyio
 import things
 from things.database import Database
 from fastmcp import FastMCP
+from mcp.types import Icon
 from fastmcp.tools.tool import ToolResult
 from starlette.responses import JSONResponse
 from .formatters import (
@@ -60,7 +62,28 @@ anything broad, call get_counts first: it sizes every list, area and project for
 about 2k tokens and hands back the UUIDs to narrow with.
 """
 
-mcp = FastMCP("Things", instructions=INSTRUCTIONS)
+# A checkmark, drawn rather than borrowed from the emoji font: an emoji inside
+# an SVG <text> element renders with whatever font the viewer happens to have,
+# so it varies by platform and can come out as a tofu box. A path always draws.
+#
+# Inlined as a data URI because Icon.src is a URI and this way there is nothing
+# to host and nothing to break -- the whole icon travels in the handshake.
+_ICON_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" '
+    'role="img" aria-label="Things">'
+    '<rect width="64" height="64" rx="14" fill="#4CAF50"/>'
+    '<path d="M18 33.5 L27.5 43 L46 21.5" fill="none" stroke="#ffffff" '
+    'stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>'
+    '</svg>'
+)
+ICON = Icon(
+    src="data:image/svg+xml;base64," + base64.b64encode(_ICON_SVG.encode()).decode(),
+    mimeType="image/svg+xml",
+    # "any" is how a scalable format declares itself; an SVG has no fixed size.
+    sizes=["any"],
+)
+
+mcp = FastMCP("Things", instructions=INSTRUCTIONS, icons=[ICON])
 
 
 # Build a set of Someday project UUIDs and a mapping of heading UUID -> project UUID
