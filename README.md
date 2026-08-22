@@ -138,6 +138,7 @@ After installation:
 - `update-todo` - Update an existing todo
 - `bulk-update-todos` - Apply the same update to many todos in a single operation
 - `update-project` - Update an existing project
+- `trash-item` - Move a to-do or project to the Trash (via AppleScript; recoverable)
 - `show-item` - Show a specific item or list in Things
 - `search-items` - Search for items in Things
 
@@ -169,6 +170,11 @@ The read counterpart to the create tools, which return the new item's ID. Works 
 - `title` (required) - Name of the tag
 
 Things silently drops tag names that do not already exist from `add-todo`, `add-todos` and `add-project` — an invented tag vanishes with no error — so create the tag first. Creating a tag that already exists is a no-op: Things hands back the existing tag rather than making a duplicate.
+
+### trash-item
+- `id` (required) - UUID of the to-do or project
+
+Recoverable. The item sits in the Trash until you empty it in Things, which this server deliberately cannot do — AppleScript's `delete` is the same operation as this one, and Things has no permanent per-item delete. Trashing a project trashes everything inside it, exactly as in the Things UI. Areas cannot be trashed, by the same design that leaves out an area delete.
 
 ### search-todos
 - `query` - Search terms

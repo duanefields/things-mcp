@@ -49,7 +49,7 @@ Test coverage includes:
 This is a Model Context Protocol (MCP) server that bridges Claude Desktop with the Things 3 task management app on macOS. The architecture consists of:
 
 1. **src/things_mcp/server.py** - Main MCP server implementation using FastMCP (3.x)
-   - Defines all MCP tools for interacting with Things (29 tools)
+   - Defines all MCP tools for interacting with Things (30 tools)
    - List views (inbox, today, upcoming, etc.)
    - CRUD operations for todos/projects/areas (Areas have create/read/update — no delete by design; see below)
    - Search and tag operations
@@ -65,13 +65,13 @@ This is a Model Context Protocol (MCP) server that bridges Claude Desktop with t
      missing or unreadable; `construct_url` raises `AuthTokenUnavailable` (message:
      `AUTH_TOKEN_HELP`) for update commands with no usable token, which the update tools
      return as a plain string rather than dispatching an update Things would reject
-   - `add_area`/`update_area`/`add_tag` use AppleScript (`osascript`) since the Things URL scheme has no area commands; all user-supplied strings are escaped (`\` then `"`) before being embedded in the AppleScript string literal to prevent injection, and `osascript` is invoked with an argv list (no shell)
+   - `add_area`/`update_area`/`add_tag`/`trash_item` use AppleScript (`osascript`) since the Things URL scheme has no area commands; all user-supplied strings are escaped (`\` then `"`) before being embedded in the AppleScript string literal to prevent injection, and `osascript` is invoked with an argv list (no shell)
 
 3. **src/things_mcp/formatters.py** - Data formatting utilities
    - Converts Things database objects to human-readable text
    - Handles nested data (projects within areas, checklist items, etc.)
 
-4. **tests/** - Unit test suite (344 tests)
+4. **tests/** - Unit test suite (352 tests)
    - **conftest.py** - Pytest fixtures and mock data
    - **_helpers.py** - `tool_text()` reads the text channel from a `ToolResult` (or a plain-string result) so text assertions work across both return shapes
    - **test_url_scheme.py** - Tests for URL construction

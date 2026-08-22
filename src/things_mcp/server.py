@@ -1209,6 +1209,37 @@ async def add_tag(title: str) -> str:
     return f"Created new tag: {title} (id: {tag_id})"
 
 @mcp.tool
+async def trash_item(id: str) -> str:
+    """Move a to-do or project to the Things Trash
+
+    Recoverable: the item sits in the Trash until you empty it in Things, which
+    this server deliberately cannot do. AppleScript's `delete` is the same
+    operation as this one -- there is no permanent per-item delete in Things --
+    so nothing here destroys data outright.
+
+    Trashing a project trashes everything inside it, exactly as it does in the
+    Things UI.
+
+    Areas cannot be trashed, by the same design that leaves out delete_area:
+    deleting an Area takes every project in it with it.
+
+    Args:
+        id: UUID of the to-do or project to trash
+    """
+    item = things.get(id)
+    if not item:
+        return f"Error: No item found with ID '{id}'"
+    if item.get('trashed'):
+        return f"Already in the Trash: {item['title']} (id: {id})"
+
+    kind = {'to-do': 'to do', 'project': 'project'}.get(item.get('type'))
+    if kind is None:
+        return f"Error: Cannot trash a {item.get('type')} — only to-dos and projects"
+
+    url_scheme.trash_item(id, kind)
+    return f"Moved to Trash: {item['title']} (id: {id})"
+
+@mcp.tool
 async def update_area(id: str, title: str = None, tags: List[str] = None) -> str:
     """Update an existing Area in Things 3 (rename and/or set tags)
 

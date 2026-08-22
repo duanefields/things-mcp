@@ -178,6 +178,32 @@ def update_area(area_id: str, title: Optional[str] = None,
     )
 
 
+def trash_item(item_id: str, kind: str) -> None:
+    """Move a to-do or project to the Things Trash via AppleScript.
+
+    The Things URL scheme cannot delete anything. AppleScript can, and its
+    `delete` command turns out to be the same operation as moving to the Trash
+    -- verified against Things 3, both leave the item recoverable. There is
+    therefore no permanent per-item delete to get wrong: a trashed item is not
+    even addressable by AppleScript afterwards, and emptying the Trash stays a
+    manual step in Things.
+
+    Args:
+        item_id: UUID of the item
+        kind: AppleScript class to address it by -- 'to do' or 'project'
+    """
+    escaped_id = item_id.replace('\\', '\\\\').replace('"', '\\"')
+    applescript = (
+        'tell application "Things3"\n'
+        f'  move {kind} id "{escaped_id}" to list "Trash"\n'
+        'end tell'
+    )
+    subprocess.run(
+        ['osascript', '-e', applescript],
+        check=True, capture_output=True, text=True
+    )
+
+
 def construct_url(command: str, params: Dict[str, Any]) -> str:
     """Construct a Things URL from command and parameters."""
     # Start with base URL
