@@ -228,6 +228,40 @@ absolute paths, so a venv created in one directory and then moved leaves the edi
 pointing at the old location, and the service fails with `No module named things_mcp`. Re-run
 `uv sync` after any move.
 
+### Forcing a deploy without waiting for the timer
+
+The timer only fires every 15 minutes, so a push landing just after a run waits out the rest of the
+interval. To deploy immediately from another machine, run the steps by hand rather than running
+`self-update.sh` over SSH:
+
+```bash
+ssh host 'set -e
+cd ~/Code/things-mcp
+git fetch --quiet origin production
+git reset --hard origin/production
+/opt/homebrew/bin/uv sync
+launchctl kickstart -k gui/$(id -u)/com.example.things-mcp'
+```
+
+**Do not restart it over SSH with `launchctl unload`/`load`, which is what `self-update.sh` itself
+does.** Those subcommands act on the calling session's bootstrap domain, and an SSH session is not
+the GUI session — so the agent can come back up somewhere that never received the Full Disk Access
+grant. The service then looks healthy, holds a live PID, and cannot read the Things database, which
+presents exactly like the privacy-prompt hang described above and is far harder to recognize because
+nothing changed on the host to explain it. Running the script itself over SSH inherits that problem.
+
+`launchctl kickstart -k gui/<uid>/<label>` is safe from anywhere because it names the domain
+explicitly, so it restarts the real agent in the GUI session no matter where it is invoked from.
+`-k` kills the running instance first. Use `id -u` rather than hardcoding the uid; it is 501 on a
+single-user Mac.
+
+Use the absolute path to `uv`. A non-interactive SSH shell does not read the profile that puts
+Homebrew on `PATH`, so a bare `uv sync` fails with `command not found` — after the checkout has
+already moved, leaving the code updated and the dependencies stale.
+
+The same applies to anything else run over SSH that ends up talking to Things: see the note on the
+AppleScript prompt above. Reading the SQLite database is fine; driving the app is not.
+
 ## Checking on it
 
 ```bash
