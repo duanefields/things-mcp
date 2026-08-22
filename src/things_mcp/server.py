@@ -1188,6 +1188,27 @@ async def add_area(title: str) -> str:
     return f"Created new area: {title} (id: {area_id})"
 
 @mcp.tool
+async def add_tag(title: str) -> str:
+    """Create a new Tag in Things 3
+
+    Worth doing before a create that uses a new tag: Things silently drops tag
+    names that do not already exist from add_todo, add_todos and add_project, so
+    an invented tag vanishes with no error. The Things URL scheme has no add-tag
+    command, so this uses AppleScript.
+
+    Creating a tag that already exists is a no-op -- Things hands back the
+    existing tag rather than making a duplicate.
+
+    Args:
+        title: Name of the tag
+    """
+    existing = {tag['title']: tag['uuid'] for tag in (things.tags() or [])}
+    if title in existing:
+        return f"Tag already exists: {title} (id: {existing[title]})"
+    tag_id = url_scheme.add_tag(title=title)
+    return f"Created new tag: {title} (id: {tag_id})"
+
+@mcp.tool
 async def update_area(id: str, title: str = None, tags: List[str] = None) -> str:
     """Update an existing Area in Things 3 (rename and/or set tags)
 

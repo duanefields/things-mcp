@@ -113,6 +113,30 @@ def add_area(title: str) -> str:
     return result.stdout.strip()
 
 
+def add_tag(title: str) -> str:
+    """Create a new Tag in Things 3 via AppleScript.
+
+    The Things URL scheme has no add-tag command, so this mirrors add_area.
+
+    Things returns the id of the existing tag when one of that name is already
+    there, rather than making a duplicate, so calling this twice is harmless.
+
+    Returns the Tag's UUID.
+    """
+    escaped_title = title.replace('\\', '\\\\').replace('"', '\\"')
+    applescript = (
+        'tell application "Things3"\n'
+        f'  set newTag to make new tag with properties {{name:"{escaped_title}"}}\n'
+        '  return id of newTag\n'
+        'end tell'
+    )
+    result = subprocess.run(
+        ['osascript', '-e', applescript],
+        check=True, capture_output=True, text=True
+    )
+    return result.stdout.strip()
+
+
 def update_area(area_id: str, title: Optional[str] = None,
                 tags: Optional[list[str]] = None) -> None:
     """Update an existing Area in Things 3 via AppleScript.

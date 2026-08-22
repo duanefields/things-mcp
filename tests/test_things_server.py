@@ -7,7 +7,7 @@ from things_mcp import url_scheme
 from things_mcp.server import (
     get_todos, get_today, get_inbox, search_todos, search_advanced,
     get_logbook, _parse_logbook_period, _today_fallback, get_tag_usage,
-    bulk_update_todos, update_todo, update_project,
+    bulk_update_todos, update_todo, update_project, add_tag,
 )
 
 
@@ -479,3 +479,26 @@ async def test_update_project_reports_a_missing_auth_token(mocker):
 
     assert result == url_scheme.AUTH_TOKEN_HELP
     execute.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_add_tag_creates_a_new_tag(mocker):
+    mocker.patch('things.tags', return_value=[{'title': 'work', 'uuid': 'w'}])
+    add = mocker.patch('things_mcp.server.url_scheme.add_tag', return_value='NEW-UUID')
+
+    result = await add_tag("Errands")
+
+    assert result == "Created new tag: Errands (id: NEW-UUID)"
+    add.assert_called_once_with(title="Errands")
+
+
+@pytest.mark.asyncio
+async def test_add_tag_does_not_recreate_an_existing_tag(mocker):
+    """Things hands back the existing tag, so claiming a create would be a lie."""
+    mocker.patch('things.tags', return_value=[{'title': 'Errands', 'uuid': 'OLD-UUID'}])
+    add = mocker.patch('things_mcp.server.url_scheme.add_tag')
+
+    result = await add_tag("Errands")
+
+    assert result == "Tag already exists: Errands (id: OLD-UUID)"
+    add.assert_not_called()

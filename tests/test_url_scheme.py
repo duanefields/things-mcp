@@ -547,3 +547,33 @@ class TestNotesAppendPrepend:
         url = update_todo(id="123", append_notes="More", when="today")
         assert "append-notes=More" in url
         assert "when=today" in url
+
+
+class TestAddTag:
+    """The Things URL scheme has no add-tag command; AppleScript does, verified
+    against Things 3 before this was built."""
+
+    @patch('subprocess.run')
+    def test_returns_the_new_tag_id(self, mock_run):
+        mock_run.return_value = Mock(stdout="TAG-UUID\n", returncode=0)
+
+        assert url_scheme.add_tag("Errands") == "TAG-UUID"
+
+    @patch('subprocess.run')
+    def test_uses_osascript_with_an_argv_list(self, mock_run):
+        mock_run.return_value = Mock(stdout="TAG-UUID", returncode=0)
+
+        url_scheme.add_tag("Errands")
+
+        args = mock_run.call_args[0][0]
+        assert args[0] == "osascript"
+        assert 'make new tag with properties {name:"Errands"}' in args[2]
+
+    @patch('subprocess.run')
+    def test_escapes_quotes_and_backslashes(self, mock_run):
+        mock_run.return_value = Mock(stdout="TAG-UUID", returncode=0)
+
+        url_scheme.add_tag('say "hi"\\now')
+
+        script = mock_run.call_args[0][0][2]
+        assert r'say \"hi\"\\now' in script

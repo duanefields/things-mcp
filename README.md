@@ -120,6 +120,7 @@ After installation:
 - `get-tags` - Get all tags
 - `get-tagged-items` - Get items with a specific tag
 - `get-tag-usage` - Report how many items use each tag, sorted by usage; flag unused tags for cleanup
+- `add-tag` - Create a new tag (via AppleScript; Things URL scheme has no add-tag command)
 
 ### Search Operations
 - `search-todos` - Ranked search by title/notes; terms match in any order
@@ -163,6 +164,11 @@ The read counterpart to the create tools, which return the new item's ID. Works 
 
 ### get-projects / get-areas / get-tags
 - `include_items` (optional, default: false) - Include contained items
+
+### add-tag
+- `title` (required) - Name of the tag
+
+Things silently drops tag names that do not already exist from `add-todo`, `add-todos` and `add-project` — an invented tag vanishes with no error — so create the tag first. Creating a tag that already exists is a no-op: Things hands back the existing tag rather than making a duplicate.
 
 ### search-todos
 - `query` - Search terms
