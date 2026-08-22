@@ -154,14 +154,18 @@ f24354b  add a self-update script for a deployed host
 
 ## Testing
 
-273 tests pass, 99 of them new. The existing suite is untouched and still green.
+352 tests pass, 178 of them new. The existing suite is untouched and still green.
 
 New tests cover the OAuth provider including its failure paths, the health endpoint, ID resolution
 including timeout and duplicate-title behavior, batch payload construction, and the
-heading-relative index rule that project ordering depends on. Note that the suite
-imports tool functions directly and awaits them rather than going through the MCP protocol, so
-nothing exercises transport selection; the HTTP and auth paths were verified against a live
-deployment instead.
+heading-relative index rule that project ordering depends on. Transport selection is covered too,
+including the stateless default. The suite imports tool functions directly and awaits them rather
+than going through the MCP protocol, so it does not exercise a real client session; the HTTP and
+auth paths were verified against a live deployment instead.
+
+The suite is hermetic — it mocks things.py wholesale and touches no real Things database — and runs
+on every push and pull request via `.github/workflows/tests.yml`, on Ubuntu, against Python 3.12
+and 3.13.
 
 ## One thing worth knowing regardless
 
