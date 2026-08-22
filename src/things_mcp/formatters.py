@@ -1,10 +1,49 @@
 import logging
 import things
+from things.database import (
+    Database, IS_ANYTIME, IS_INBOX, IS_SOMEDAY, TABLE_AREA,
+)
 
 from .recurrence import next_occurrences
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
+
+# title, start and parent project for one task, without hydrating its contents.
+#
+# things.get(uuid) returns all three, but api.tasks forces include_items=True
+# for any uuid lookup -- so reading a project's title drags in every to-do and
+# heading it holds, recursively. Displaying one parent title cost 16ms and a
+# small tree of queries; get_anytime issued 26,842 of them to render 365 rows,
+# and spent 11 of its 11.3 seconds inside sqlite.
+#
+# The CASE is things.py's own, built from its constants so the two cannot drift
+# apart on what an integer start means.
+_PARENT_SQL = f"""
+    SELECT title,
+           CASE
+               WHEN {IS_INBOX} THEN 'Inbox'
+               WHEN {IS_ANYTIME} THEN 'Anytime'
+               WHEN {IS_SOMEDAY} THEN 'Someday'
+           END AS start,
+           project
+    FROM TMTask
+    WHERE uuid = ?
+"""
+
+
+_AREA_TITLE_SQL = f"SELECT title FROM {TABLE_AREA} WHERE uuid = ?"
+
+
+def _parent(uuid):
+    """One task's title/start/project as a dict, or None if missing/unreadable."""
+    if not uuid:
+        return None
+    try:
+        rows = Database().execute_query(_PARENT_SQL, (uuid,))
+    except Exception:
+        return None
+    return rows[0] if rows else None
 
 
 def _calculate_age(date_str: str) -> str:
@@ -121,18 +160,20 @@ def upcoming_order(todos):
 
 
 def _lookup_title(uuid):
-    """Fetch an item by uuid and return its title, or None if missing/broken.
+    """Title of a project, heading, or area by uuid; None if missing/unreadable.
 
-    Wraps the things.get + try/except + None check pattern used to display
-    parent project, area, and heading titles next to a task.
+    Projects and headings are tasks; areas live in their own table, so try both.
     """
+    row = _parent(uuid)
+    if row and row.get('title'):
+        return row['title']
     if not uuid:
         return None
     try:
-        obj = things.get(uuid)
+        rows = Database().execute_query(_AREA_TITLE_SQL, (uuid,))
     except Exception:
         return None
-    return obj['title'] if obj and obj.get('title') else None
+    return rows[0]['title'] if rows and rows[0].get('title') else None
 
 
 def _append_timestamps(text: str, item: dict) -> str:
@@ -170,17 +211,11 @@ def format_todo(todo: dict) -> str:
     # For heading-level tasks without a project field, resolve heading -> project.
     parent_project = None
     if todo.get('project'):
-        try:
-            parent_project = things.get(todo['project'])
-        except Exception:
-            pass
+        parent_project = _parent(todo['project'])
     elif todo.get('heading'):
-        try:
-            heading_obj = things.get(todo['heading'])
-            if heading_obj and heading_obj.get('project'):
-                parent_project = things.get(heading_obj['project'])
-        except Exception:
-            pass
+        heading_obj = _parent(todo['heading'])
+        if heading_obj and heading_obj.get('project'):
+            parent_project = _parent(heading_obj['project'])
 
     # Start/list location with Someday inheritance from the parent project.
     if todo.get('start'):

@@ -1,5 +1,6 @@
 import pytest
-from unittest.mock import patch
+from contextlib import contextmanager
+from unittest.mock import Mock, patch
 from datetime import datetime, timedelta
 from things_mcp.formatters import (
     format_todo, format_project, format_area, format_tag, format_heading,
@@ -7,27 +8,53 @@ from things_mcp.formatters import (
 )
 
 
+@contextmanager
+def fake_lookups(tasks=None, areas=None):
+    """Serve the formatters' parent and title lookups from dicts.
+
+    A parent's title/start/project is read straight out of TMTask, and an
+    area's title out of TMArea, rather than through things.get: api.tasks
+    forces include_items for a uuid lookup, so displaying one parent title
+    hydrated that whole project. See formatters._parent.
+    """
+    tasks, areas = tasks or {}, areas or {}
+
+    def execute_query(sql, parameters=()):
+        uuid = parameters[0] if parameters else None
+        if "TMArea" in sql:
+            title = areas.get(uuid)
+            return [{"title": title}] if title else []
+        row = tasks.get(uuid)
+        return [row] if row else []
+
+    with patch("things_mcp.formatters.Database",
+               return_value=Mock(execute_query=execute_query)):
+        yield
+
+
 class TestLookupTitle:
-    """The helper that wraps things.get + try/except + None check."""
+    """Titles for the project, heading, and area shown beside a task."""
 
     def test_returns_none_for_falsy_uuid(self):
         assert _lookup_title(None) is None
         assert _lookup_title("") is None
 
-    @patch('things.get')
-    def test_returns_title_on_hit(self, mock_get):
-        mock_get.return_value = {'title': 'My Area', 'uuid': 'a-1'}
-        assert _lookup_title('a-1') == 'My Area'
+    def test_returns_title_on_hit(self):
+        with fake_lookups(tasks={'p-1': {'title': 'My Project'}}):
+            assert _lookup_title('p-1') == 'My Project'
 
-    @patch('things.get')
-    def test_returns_none_on_miss(self, mock_get):
-        mock_get.return_value = None
-        assert _lookup_title('missing') is None
+    def test_falls_through_to_the_area_table(self):
+        """Projects and headings are tasks; an area is not, so both are tried."""
+        with fake_lookups(areas={'a-1': 'My Area'}):
+            assert _lookup_title('a-1') == 'My Area'
 
-    @patch('things.get')
-    def test_returns_none_when_things_get_raises(self, mock_get):
-        mock_get.side_effect = RuntimeError("db locked")
-        assert _lookup_title('a-1') is None
+    def test_returns_none_on_miss(self):
+        with fake_lookups():
+            assert _lookup_title('missing') is None
+
+    def test_returns_none_when_the_database_raises(self):
+        with patch('things_mcp.formatters.Database', side_effect=RuntimeError("db locked")):
+            assert _lookup_title('a-1') is None
 
     @patch('things.get')
     def test_returns_none_when_title_missing(self, mock_get):
@@ -255,53 +282,44 @@ class TestFormatTodo:
         
         assert "Notes: Important details here" in result
     
-    @patch('things.get')
-    def test_format_todo_with_project(self, mock_get):
+    def test_format_todo_with_project(self):
         """Test formatting todo with project reference."""
-        mock_get.return_value = {'title': 'Test Project'}
-        
         todo = {
             'title': 'Todo in Project',
             'uuid': 'project-todo-uuid',
             'type': 'to-do',
             'project': 'project-uuid'
         }
-        result = format_todo(todo)
-        
+        with fake_lookups(tasks={'project-uuid': {'title': 'Test Project'}}):
+            result = format_todo(todo)
+
         assert "Project: Test Project" in result
-        mock_get.assert_called_once_with('project-uuid')
     
-    @patch('things.get')
-    def test_format_todo_with_area(self, mock_get):
+    def test_format_todo_with_area(self):
         """Test formatting todo with area reference."""
-        mock_get.return_value = {'title': 'Work Area'}
-        
         todo = {
             'title': 'Todo in Area',
             'uuid': 'area-todo-uuid',
             'type': 'to-do',
             'area': 'area-uuid'
         }
-        result = format_todo(todo)
-        
+        with fake_lookups(areas={'area-uuid': 'Work Area'}):
+            result = format_todo(todo)
+
         assert "Area: Work Area" in result
-        mock_get.assert_called_once_with('area-uuid')
 
-    @patch('things.get')
-    def test_format_todo_with_heading(self, mock_get):
+    def test_format_todo_with_heading(self):
         """Test formatting todo with heading reference."""
-        mock_get.return_value = {'title': 'Feature Heading'}
-
         todo = {
             'title': 'Todo in Heading',
             'uuid': 'heading-todo-uuid',
             'type': 'to-do',
             'heading': 'heading-uuid'
         }
-        result = format_todo(todo)
+        with fake_lookups(tasks={'heading-uuid': {'title': 'Feature Heading'}}):
+            result = format_todo(todo)
 
         assert "Heading: Feature Heading" in result
-        mock_get.assert_any_call('heading-uuid')
     
     def test_format_todo_with_tags(self):
         """Test formatting todo with tags."""
@@ -343,14 +361,8 @@ class TestFormatTodo:
         
         assert "List: Today" in result
     
-    @patch('things.get')
-    def test_format_todo_inherited_someday_status(self, mock_get):
+    def test_format_todo_inherited_someday_status(self):
         """Test that a task with start=Anytime in a Someday project shows inherited status."""
-        mock_get.return_value = {
-            'title': 'Someday Project',
-            'uuid': 'someday-proj',
-            'start': 'Someday'
-        }
         todo = {
             'title': 'Task in Someday project',
             'uuid': 'task-uuid',
@@ -358,7 +370,10 @@ class TestFormatTodo:
             'start': 'Anytime',
             'project': 'someday-proj'
         }
-        result = format_todo(todo)
+        with fake_lookups(tasks={'someday-proj': {
+            'title': 'Someday Project', 'start': 'Someday'
+        }}):
+            result = format_todo(todo)
 
         assert "List: Someday (inherited from project)" in result
         assert "Project: Someday Project" in result
@@ -383,17 +398,8 @@ class TestFormatTodo:
         assert "List: Anytime" in result
         assert "inherited" not in result
 
-    @patch('things.get')
-    def test_format_todo_inherited_someday_via_heading(self, mock_get):
+    def test_format_todo_inherited_someday_via_heading(self):
         """Test that a task under a heading in a Someday project shows inherited status."""
-        def get_item(uuid):
-            if uuid == 'heading-uuid':
-                return {'title': 'go bag ready', 'uuid': 'heading-uuid', 'project': 'someday-proj'}
-            if uuid == 'someday-proj':
-                return {'title': 'Packing list template', 'uuid': 'someday-proj', 'start': 'Someday'}
-            return None
-        mock_get.side_effect = get_item
-
         todo = {
             'title': 'Theraband',
             'uuid': 'task-uuid',
@@ -401,7 +407,11 @@ class TestFormatTodo:
             'start': 'Anytime',
             'heading': 'heading-uuid'
         }
-        result = format_todo(todo)
+        with fake_lookups(tasks={
+            'heading-uuid': {'title': 'go bag ready', 'project': 'someday-proj'},
+            'someday-proj': {'title': 'Packing list template', 'start': 'Someday'},
+        }):
+            result = format_todo(todo)
 
         assert "List: Someday (inherited from project)" in result
 
@@ -448,16 +458,14 @@ class TestFormatTodo:
         assert "List: Someday" in result
         assert "inherited" not in result
 
-    @patch('things.get')
-    def test_format_todo_complete(self, mock_get, mock_todo):
+    def test_format_todo_complete(self, mock_todo):
         """Test formatting todo with all fields using fixture."""
-        mock_get.side_effect = lambda uuid: {
-            'project-uuid': {'title': 'Mock Project'},
-            'area-uuid': {'title': 'Mock Area'},
-            'heading-uuid': {'title': 'Mock Heading'}
-        }.get(uuid)
-        
-        result = format_todo(mock_todo)
+        with fake_lookups(
+            tasks={'project-uuid': {'title': 'Mock Project'},
+                   'heading-uuid': {'title': 'Mock Heading'}},
+            areas={'area-uuid': 'Mock Area'},
+        ):
+            result = format_todo(mock_todo)
         
         assert "Title: Test Todo" in result
         assert "UUID: test-todo-uuid" in result
@@ -491,19 +499,18 @@ class TestFormatProject:
         assert "UUID: simple-project-uuid" in result
     
     @patch('things.tasks')
-    @patch('things.get')
-    def test_format_project_with_area(self, mock_get, mock_tasks):
+    def test_format_project_with_area(self, mock_tasks):
         """Test formatting project with area."""
-        mock_get.return_value = {'title': 'Work Area'}
         mock_tasks.return_value = []
-        
+
         project = {
             'title': 'Project in Area',
             'uuid': 'area-project-uuid',
             'area': 'area-uuid'
         }
-        result = format_project(project)
-        
+        with fake_lookups(areas={'area-uuid': 'Work Area'}):
+            result = format_project(project)
+
         assert "Area: Work Area" in result
     
     @patch('things.tasks')
@@ -911,21 +918,18 @@ class TestFormatHeading:
         
         assert "Project: Main Project" in result
     
-    @patch('things.get')
-    def test_format_heading_with_project_lookup(self, mock_get):
+    def test_format_heading_with_project_lookup(self):
         """Test formatting heading with project lookup."""
-        mock_get.return_value = {'title': 'Looked Up Project'}
-        
         heading = {
             'title': 'Testing',
             'uuid': 'test-heading-uuid',
             'type': 'heading',
             'project': 'project-uuid'
         }
-        result = format_heading(heading)
-        
+        with fake_lookups(tasks={'project-uuid': {'title': 'Looked Up Project'}}):
+            result = format_heading(heading)
+
         assert "Project: Looked Up Project" in result
-        mock_get.assert_called_once_with('project-uuid')
     
     def test_format_heading_with_dates(self):
         """Test formatting heading with dates."""
