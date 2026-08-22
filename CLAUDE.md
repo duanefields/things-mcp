@@ -49,12 +49,26 @@ Test coverage includes:
 This is a Model Context Protocol (MCP) server that bridges Claude Desktop with the Things 3 task management app on macOS. The architecture consists of:
 
 1. **src/things_mcp/server.py** - Main MCP server implementation using FastMCP (3.x)
-   - Defines all MCP tools for interacting with Things (30 tools)
+   - Defines all MCP tools for interacting with Things (32 tools)
    - List views (inbox, today, upcoming, etc.)
    - CRUD operations for todos/projects/areas (Areas have create/read/update — no delete by design; see below)
    - Search and tag operations
    - Things URL scheme integration
    - Implements Someday project filtering to match Things UI behavior
+   - **Default fetch limits**: the broad list/search tools default to `limit=50` — unbounded,
+     `get_todos()` returned 676 rows and ~194k tokens across both channels, enough to exhaust a
+     context on one call. `_paginate_format` prepends "Showing 1-50 of 676 items" so truncation is
+     visible rather than silent, and the descriptions say to raise the limit when a whole list has
+     to be weighed. Naturally small tools (`get_areas`, `get_tags`, `get_projects`) stay unbounded
+   - **Sort order and truncation**: a cap is only safe where the order means something. Within one
+     container `index` is the manual order the user dragged into place, so `get_todos(project_uuid=)`
+     (via `_project_display_order`) and `get_todos(heading_uuid=)` are fine as they are.
+     `get_upcoming` sorts by date, `get_deadlines` by deadline, `search_todos` by relevance,
+     `get_logbook` by completion. The cross-container reads have no hand-made order to preserve
+   - **`get_counts`**: sizes every list, area and project without fetching any of it, ~2k tokens.
+     Each list count comes from the tool that would answer it, so the numbers cannot drift from what
+     a fetch returns; area counts use the inherited area, matching `get_todos(area_uuid=)`. Also the
+     way to look up an area or project UUID by name
    - **Pagination + structured responses**: the 16 list/search read tools accept optional `limit`/`offset` and return a FastMCP `ToolResult` carrying both a human-readable text channel and a `structured_content` envelope `{items, count, total, offset, limit}`. Two helpers drive this: `_paginate_format` (text) and `_paginate_result` (wraps text + JSON-safe structured data); `_error_result` wraps early-return/validation errors. `get_tag_usage` intentionally stays a plain string.
 
 2. **src/things_mcp/url_scheme.py** - Things URL scheme + AppleScript implementation

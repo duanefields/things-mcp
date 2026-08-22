@@ -19,7 +19,9 @@ from .formatters import (
     format_todo, format_project, format_area, format_tag, format_heading,
     display_order, upcoming_order,
 )
-from .areas import annotate as annotate_areas, parent_lookup
+from .areas import (
+    annotate as annotate_areas, effective_area, effective_project, parent_lookup,
+)
 from .auth import build_auth
 from .recurrence import next_occurrences
 from . import url_scheme
@@ -333,7 +335,7 @@ async def get_today(limit: int = None, offset: int = 0) -> ToolResult:
     return _paginate_result(todos, format_todo, limit, offset, "No items found")
 
 @mcp.tool
-async def get_upcoming(within_days: int = None, limit: int = None,
+async def get_upcoming(within_days: int = None, limit: int = 50,
                        offset: int = 0) -> ToolResult:
     """Get upcoming todos, earliest first
 
@@ -344,7 +346,9 @@ async def get_upcoming(within_days: int = None, limit: int = None,
     Args:
         within_days: Only items scheduled within this many days from today,
             for "what is on my list this week". Default: everything ahead.
-        limit: Maximum number of items to return (default: all)
+        limit: Maximum number of items to return (default: 50). Raise it
+            when a question needs the whole list weighed rather than a
+            sample -- the text says how many were held back.
         offset: Number of items to skip from the start (default: 0)
     """
     err = _validate_pagination(limit, offset)
@@ -375,7 +379,7 @@ async def get_upcoming(within_days: int = None, limit: int = None,
     return _paginate_result(todos, format_todo, limit, offset, "No items found")
 
 @mcp.tool
-async def get_anytime(limit: int = None, offset: int = 0) -> ToolResult:
+async def get_anytime(limit: int = 50, offset: int = 0) -> ToolResult:
     """Get todos from the Anytime list -- no date, available to do now
 
     Rows carry full notes, tags and deadline, and effective_area -- the area
@@ -384,7 +388,9 @@ async def get_anytime(limit: int = None, offset: int = 0) -> ToolResult:
     to-dos inside it; use get_todos(project_uuid=...) for those.
 
     Args:
-        limit: Maximum number of items to return (default: all)
+        limit: Maximum number of items to return (default: 50). Raise it
+            when a question needs the whole list weighed rather than a
+            sample -- the text says how many were held back.
         offset: Number of items to skip from the start (default: 0)
     """
     err = _validate_pagination(limit, offset)
@@ -402,7 +408,7 @@ async def get_anytime(limit: int = None, offset: int = 0) -> ToolResult:
     return _paginate_result(todos, format_todo, limit, offset, "No items found")
 
 @mcp.tool
-async def get_someday(limit: int = None, offset: int = 0) -> ToolResult:
+async def get_someday(limit: int = 50, offset: int = 0) -> ToolResult:
     """Get todos from the Someday list, including tasks in Someday projects
 
     Rows carry full notes, tags and deadline, and effective_area -- the area
@@ -411,7 +417,9 @@ async def get_someday(limit: int = None, offset: int = 0) -> ToolResult:
     to-dos inside it; use get_todos(project_uuid=...) for those.
 
     Args:
-        limit: Maximum number of items to return (default: all)
+        limit: Maximum number of items to return (default: 50). Raise it
+            when a question needs the whole list weighed rather than a
+            sample -- the text says how many were held back.
         offset: Number of items to skip from the start (default: 0)
     """
     err = _validate_pagination(limit, offset)
@@ -498,7 +506,7 @@ async def get_logbook(period: str = "7d", limit: int = 50, offset: int = 0) -> T
     return _paginate_result(todos, format_todo, limit, offset, "No items found")
 
 @mcp.tool
-async def get_trash(limit: int = None, offset: int = 0) -> ToolResult:
+async def get_trash(limit: int = 50, offset: int = 0) -> ToolResult:
     """Get todos and projects in the Trash
 
     Rows carry full notes, tags and deadline, and effective_area -- the area
@@ -507,7 +515,9 @@ async def get_trash(limit: int = None, offset: int = 0) -> ToolResult:
     to-dos inside it; use get_todos(project_uuid=...) for those.
 
     Args:
-        limit: Maximum number of items to return (default: all)
+        limit: Maximum number of items to return (default: 50). Raise it
+            when a question needs the whole list weighed rather than a
+            sample -- the text says how many were held back.
         offset: Number of items to skip from the start (default: 0)
     """
     err = _validate_pagination(limit, offset)
@@ -520,7 +530,7 @@ async def get_trash(limit: int = None, offset: int = 0) -> ToolResult:
 @mcp.tool
 async def get_todos(project_uuid: str = None, heading_uuid: str = None,
                     area_uuid: str = None, include_items: bool = True,
-                    limit: int = None, offset: int = 0) -> ToolResult:
+                    limit: int = 50, offset: int = 0) -> ToolResult:
     """Get todos from Things, optionally filtered by project, heading, or area
 
     Returns both human-readable text and structured JSON (the raw todo dicts
@@ -544,7 +554,9 @@ async def get_todos(project_uuid: str = None, heading_uuid: str = None,
             inside that area's projects -- which is nearly all of them. A todo
             rarely carries an area of its own. See effective_area.
         include_items: Include checklist items
-        limit: Maximum number of items to return (default: all)
+        limit: Maximum number of items to return (default: 50). Raise it
+            when a question needs the whole list weighed rather than a
+            sample -- the text says how many were held back.
         offset: Number of items to skip from the start (default: 0)
     """
     err = _validate_pagination(limit, offset)
@@ -700,7 +712,7 @@ async def get_tags(include_items: bool = False, limit: int = None, offset: int =
     )
 
 @mcp.tool
-async def get_tagged_items(tag: str, limit: int = None, offset: int = 0) -> ToolResult:
+async def get_tagged_items(tag: str, limit: int = 50, offset: int = 0) -> ToolResult:
     """Get items carrying a tag, across every area and project
 
     Tags cut across the hierarchy, so this reaches items a list or area view
@@ -712,7 +724,9 @@ async def get_tagged_items(tag: str, limit: int = None, offset: int = 0) -> Tool
 
     Args:
         tag: Tag title to filter by
-        limit: Maximum number of items to return (default: all)
+        limit: Maximum number of items to return (default: 50). Raise it
+            when a question needs the whole list weighed rather than a
+            sample -- the text says how many were held back.
         offset: Number of items to skip from the start (default: 0)
     """
     err = _validate_pagination(limit, offset)
@@ -720,6 +734,85 @@ async def get_tagged_items(tag: str, limit: int = None, offset: int = 0) -> Tool
         return _error_result(err)
     todos = things.todos(tag=tag)
     return _paginate_result(todos, format_todo, limit, offset, f"No items found with tag '{tag}'")
+
+@mcp.tool
+async def get_counts() -> ToolResult:
+    """How much is in each list, area and project, without fetching any of it
+
+    Reach for this before a broad read. The list tools return at most 50 rows
+    by default, so knowing a count first is the difference between narrowing
+    deliberately and taking an arbitrary slice: 🌍 Travel at 34 comes back
+    whole, 🧑🏻‍💻 Fast Wombat at 183 does not.
+
+    Area counts use the area an item falls under, inherited from its project
+    when it has none of its own -- the same resolution get_todos(area_uuid=...)
+    filters on, so a count here is the number that call returns. Every count
+    comes from the tool that would answer it, so none of them can drift.
+
+    UUIDs are included, so this also serves as the way to find the id of an
+    area or project by name.
+
+    Counts per tag are a separate question; get_tag_usage answers that.
+    """
+    lists = {}
+    for name, tool in (
+        ("inbox", get_inbox), ("today", get_today), ("anytime", get_anytime),
+        ("upcoming", get_upcoming), ("someday", get_someday),
+        ("deadlines", get_deadlines), ("trash", get_trash), ("all_todos", get_todos),
+    ):
+        try:
+            result = await tool(limit=1)
+            lists[name] = result.structured_content.get("total", 0)
+        except Exception:
+            logger.warning("Could not count %s", name, exc_info=True)
+            lists[name] = None
+
+    projects_to_area, headings_to_project, area_titles = parent_lookup()
+    todos = things.tasks(status="incomplete", type="to-do") or []
+    by_area = Counter(effective_area(t, projects_to_area, headings_to_project)
+                      for t in todos)
+    by_project = Counter(effective_project(t, headings_to_project) for t in todos)
+
+    project_rows = things.projects() or []
+    areas = sorted(
+        ({"uuid": uuid, "title": title, "todos": by_area.get(uuid, 0),
+          "projects": sum(1 for p in project_rows if p.get("area") == uuid)}
+         for uuid, title in area_titles.items()),
+        key=lambda a: -a["todos"],
+    )
+    projects = sorted(
+        ({"uuid": p["uuid"], "title": p["title"],
+          "todos": by_project.get(p["uuid"], 0),
+          "area_title": p.get("area_title")}
+         for p in project_rows),
+        key=lambda p: -p["todos"],
+    )
+
+    text = ["Lists:"]
+    text += [f"  {name:<12} {count}" for name, count in lists.items()]
+    text.append("")
+    text.append("Areas (counting todos inside their projects):")
+    text += [
+        f"  {a['title']}  {a['todos']} todos, {a['projects']} "
+        f"project{'' if a['projects'] == 1 else 's'}  [{a['uuid']}]"
+        for a in areas
+    ]
+    text.append("")
+    text.append("Projects:")
+    text += [f"  {p['title']}  {p['todos']}  [{p['uuid']}]" for p in projects]
+    text.append("")
+    text.append(f"Todos under no area at all: {by_area.get(None, 0)}")
+
+    return ToolResult(
+        content="\n".join(text),
+        structured_content={
+            "lists": lists,
+            "areas": areas,
+            "projects": projects,
+            "unassigned_todos": by_area.get(None, 0),
+        },
+    )
+
 
 @mcp.tool
 async def get_tag_usage(only_unused: bool = False) -> str:
@@ -869,7 +962,7 @@ def _rank_search_results(query, items):
 
 
 @mcp.tool
-async def search_todos(query: str, limit: int = None, offset: int = 0) -> ToolResult:
+async def search_todos(query: str, limit: int = 50, offset: int = 0) -> ToolResult:
     """Search todos by title or notes
 
     Multi-term queries match in any order -- "dentist call" finds "Call dentist"
@@ -879,7 +972,8 @@ async def search_todos(query: str, limit: int = None, offset: int = 0) -> ToolRe
 
     Args:
         query: Search term to look for in todo titles and notes
-        limit: Maximum number of items to return (default: all)
+        limit: Maximum number of items to return (default: 50). Results are
+            ranked, so the default is the 50 best matches; raise it for more.
         offset: Number of items to skip from the start (default: 0)
     """
     err = _validate_pagination(limit, offset)
@@ -906,7 +1000,7 @@ async def search_advanced(
     area: str = None,
     type: str = None,
     last: str = None,
-    limit: int = None,
+    limit: int = 50,
     offset: int = 0
 ) -> ToolResult:
     """Find to-dos by field rather than by text: area, tag, dates, status
@@ -931,7 +1025,9 @@ async def search_advanced(
             rarely carries an area of its own. See effective_area.
         type: Filter by item type (to-do, project, heading)
         last: Filter by creation date (e.g., '3d' for last 3 days, '1w' for last week, '1y' for last year)
-        limit: Maximum number of items to return (default: all)
+        limit: Maximum number of items to return (default: 50). Raise it
+            when a question needs the whole list weighed rather than a
+            sample -- the text says how many were held back.
         offset: Number of items to skip from the start (default: 0)
     """
     err = _validate_pagination(limit, offset)
@@ -966,7 +1062,7 @@ async def search_advanced(
 
 # Recent items
 @mcp.tool
-async def get_recent(period: str, limit: int = None, offset: int = 0) -> ToolResult:
+async def get_recent(period: str, limit: int = 50, offset: int = 0) -> ToolResult:
     """Get items created within a period, newest first
 
     Filters on creation date, not on when anything was done or scheduled.
@@ -978,7 +1074,9 @@ async def get_recent(period: str, limit: int = None, offset: int = 0) -> ToolRes
 
     Args:
         period: Time period (e.g., '3d', '1w', '2m', '1y')
-        limit: Maximum number of items to return (default: all)
+        limit: Maximum number of items to return (default: 50). Raise it
+            when a question needs the whole list weighed rather than a
+            sample -- the text says how many were held back.
         offset: Number of items to skip from the start (default: 0)
     """
     err = _validate_pagination(limit, offset)
