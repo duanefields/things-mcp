@@ -614,6 +614,33 @@ async def get_recent(period: str, limit: int = None, offset: int = 0) -> ToolRes
     todos = things.last(period, include_items=True)
     return _paginate_result(todos, format_todo, limit, offset, f"No items found in the last {period}")
 
+@mcp.tool
+async def get_deadlines(within_days: int = None, limit: int = None, offset: int = 0) -> ToolResult:
+    """Get incomplete items that have a deadline, earliest first
+
+    Answers "what is due, what is overdue" without pulling a list and filtering
+    client-side. Overdue items sort to the front, since they have the earliest
+    deadlines. Includes projects as well as todos.
+
+    Args:
+        within_days: Only items due within this many days from today. Overdue
+            items are always included. Default: every deadline.
+        limit: Maximum number of items to return (default: all)
+        offset: Number of items to skip from the start (default: 0)
+    """
+    err = _validate_pagination(limit, offset)
+    if err:
+        return _error_result(err)
+    if within_days is not None and within_days < 0:
+        return _error_result("Error: within_days must be zero or a positive integer")
+
+    todos = things.deadlines(include_items=True) or []
+    if within_days is not None:
+        # Deadlines are 'YYYY-MM-DD' strings, so this compares lexicographically.
+        cutoff = (datetime.now().date() + timedelta(days=within_days)).isoformat()
+        todos = [t for t in todos if t.get('deadline') and t['deadline'] <= cutoff]
+    return _paginate_result(todos, format_todo, limit, offset, "No deadlines found")
+
 # --- Creation and ID confirmation -------------------------------------------
 #
 # The Things URL scheme accepts no caller-supplied ID and returns nothing, so a

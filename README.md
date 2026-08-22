@@ -127,6 +127,7 @@ After installation:
 
 ### Time-based Operations
 - `get-recent` - Get recently created items
+- `get-deadlines` - Get incomplete items that have a deadline, earliest first (overdue first)
 
 ### Things URL Scheme Operations
 - `add-todo` - Create a new todo
@@ -142,7 +143,7 @@ After installation:
 ## Tool Parameters
 
 ### Pagination (most read tools)
-The list/search read tools (`get-inbox`, `get-today`, `get-upcoming`, `get-anytime`, `get-someday`, `get-logbook`, `get-trash`, `get-todos`, `get-projects`, `get-areas`, `get-tags`, `get-tagged-items`, `get-headings`, `search-todos`, `search-advanced`, `get-recent`) accept optional pagination:
+The list/search read tools (`get-inbox`, `get-today`, `get-upcoming`, `get-anytime`, `get-someday`, `get-logbook`, `get-trash`, `get-todos`, `get-projects`, `get-areas`, `get-tags`, `get-tagged-items`, `get-headings`, `search-todos`, `search-advanced`, `get-recent`, `get-deadlines`) accept optional pagination:
 - `limit` - Maximum number of items to return (default: all; `get-logbook` defaults to 50)
 - `offset` - Number of items to skip from the start (default: 0)
 
@@ -171,6 +172,11 @@ The read counterpart to the create tools, which return the new item's ID. Works 
 - `area` - Filter by area UUID
 - `type` - Filter by item type (to-do/project/heading)
 - `last` - Filter by creation date (e.g., '3d' for last 3 days, '1w' for last week)
+
+### get-deadlines
+- `within_days` (optional) - Only items due within this many days from today; overdue items are always included. Default: every deadline.
+
+Includes projects as well as todos, sorted earliest deadline first, so overdue items come first.
 
 ### get-recent
 - `period` - Time period (e.g., '3d', '1w', '2m', '1y')
