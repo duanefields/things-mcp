@@ -122,7 +122,7 @@ After installation:
 - `get-tag-usage` - Report how many items use each tag, sorted by usage; flag unused tags for cleanup
 
 ### Search Operations
-- `search-todos` - Simple search by title/notes
+- `search-todos` - Ranked search by title/notes; terms match in any order
 - `search-advanced` - Advanced search with multiple filters
 
 ### Time-based Operations
@@ -163,6 +163,13 @@ The read counterpart to the create tools, which return the new item's ID. Works 
 
 ### get-projects / get-areas / get-tags
 - `include_items` (optional, default: false) - Include contained items
+
+### search-todos
+- `query` - Search terms
+
+Terms match in any order, so `dentist call` finds "Call dentist". Every term must appear in the item's title or notes. Results are ranked: whole-word beats prefix beats mid-word, a title hit outweighs a notes hit, and a contiguous hit on the whole query outranks scattered terms.
+
+Items are **not** matched by the name of their area. things.py searches the parent area's title too, which meant searching `Work` returned every task in the Work area. Use `search-advanced` with `area` to search by area.
 
 ### search-advanced
 - `status` - Filter by status (incomplete/completed/canceled)

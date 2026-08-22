@@ -533,9 +533,100 @@ async def get_headings(project_uuid: str = None, limit: int = None, offset: int 
     return _paginate_result(headings, format_heading, limit, offset, "No headings found")
 
 # Search operations
+#
+# things.search() is one LIKE '%query%' over title, notes and the parent AREA's
+# title. Three consequences: "dentist call" finds nothing when the task is "Call
+# dentist", results arrive in database order with no notion of a better match,
+# and searching an area's name returns every task in that area.
+#
+# All three are fixed locally, with no new dependency. The query is tokenized;
+# the longest token -- usually the most selective -- still goes to SQL so the
+# scan stays in the database, and the rest are matched in Python over that
+# candidate set. Matching is against title and notes only, which is what removes
+# the area flood: an item whose only connection to the query is its area no
+# longer matches. Search by area with search_advanced(area=...).
+
+_SEARCH_TOKEN = re.compile(r"[^\W_]+", re.UNICODE)
+
+
+def _search_tokens(query):
+    """Split a query into tokens, or [] if there is nothing to match.
+
+    Case is preserved: SQLite's LIKE is case-insensitive for ASCII only, so the
+    token handed to SQL should be the one the user typed.
+    """
+    tokens = _SEARCH_TOKEN.findall(query)
+    if tokens:
+        return tokens
+    # A query of pure punctuation still deserves a literal substring attempt.
+    stripped = query.strip()
+    return [stripped] if stripped else []
+
+
+def _token_score(text, token):
+    """How well `token` matches `text`: 3 whole word, 2 prefix, 1 mid-word, 0 absent.
+
+    Scores the best occurrence, so "call" ranks a task titled "Call dentist"
+    above one titled "Recalled items".
+    """
+    if not text:
+        return 0
+    text = text.lower()
+    best = 0
+    start = text.find(token)
+    while start != -1:
+        end = start + len(token)
+        at_start = start == 0 or not text[start - 1].isalnum()
+        at_end = end == len(text) or not text[end].isalnum()
+        best = max(best, 3 if at_start and at_end else 2 if at_start else 1)
+        if best == 3:
+            break
+        start = text.find(token, start + 1)
+    return best
+
+
+def _rank_search_results(query, items):
+    """Keep the items matching every token in title or notes, best match first.
+
+    Every token must appear somewhere, which is what makes word order irrelevant.
+    Title matches outweigh notes matches, and a contiguous hit on the whole
+    query outranks a scattered one -- so searching "dentist call" puts "Call
+    dentist" above a task whose notes happen to mention both words.
+    """
+    tokens = [token.lower() for token in _search_tokens(query)]
+    if not tokens:
+        return []
+
+    phrase = query.strip().lower()
+    scored = []
+    for item in items or []:
+        title = item.get('title') or ''
+        notes = item.get('notes') or ''
+        score = 0
+        for token in tokens:
+            in_title = _token_score(title, token)
+            in_notes = _token_score(notes, token)
+            if not in_title and not in_notes:
+                break
+            score += in_title * 4 + in_notes
+        else:
+            if len(tokens) > 1:
+                score += _token_score(title, phrase) * 10 + _token_score(notes, phrase) * 3
+            scored.append((score, item))
+
+    # Stable sort, so equally scored items keep the order things.py returned.
+    scored.sort(key=lambda pair: -pair[0])
+    return [item for _score, item in scored]
+
+
 @mcp.tool
 async def search_todos(query: str, limit: int = None, offset: int = 0) -> ToolResult:
     """Search todos by title or notes
+
+    Multi-term queries match in any order -- "dentist call" finds "Call dentist"
+    -- and results are ranked, with whole-word title matches first. Every term
+    must appear in the title or the notes. An item is not matched by the name of
+    its area; use search_advanced(area=...) for that.
 
     Args:
         query: Search term to look for in todo titles and notes
@@ -545,7 +636,16 @@ async def search_todos(query: str, limit: int = None, offset: int = 0) -> ToolRe
     err = _validate_pagination(limit, offset)
     if err:
         return _error_result(err)
-    todos = things.search(query, include_items=True)
+
+    tokens = _search_tokens(query)
+    if not tokens:
+        return _error_result("Error: query must contain at least one character to search for")
+
+    # Narrow in SQL with the longest token, then apply the rest in Python. One
+    # database scan either way, and for a single-token query this is the same
+    # query things.search() ran before.
+    candidates = things.search(max(tokens, key=len), include_items=True)
+    todos = _rank_search_results(query, candidates)
     return _paginate_result(todos, format_todo, limit, offset, f"No todos found matching '{query}'")
 
 @mcp.tool

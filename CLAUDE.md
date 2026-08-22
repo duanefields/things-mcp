@@ -71,7 +71,7 @@ This is a Model Context Protocol (MCP) server that bridges Claude Desktop with t
    - Converts Things database objects to human-readable text
    - Handles nested data (projects within areas, checklist items, etc.)
 
-4. **tests/** - Unit test suite (320 tests)
+4. **tests/** - Unit test suite (339 tests)
    - **conftest.py** - Pytest fixtures and mock data
    - **_helpers.py** - `tool_text()` reads the text channel from a `ToolResult` (or a plain-string result) so text assertions work across both return shapes
    - **test_url_scheme.py** - Tests for URL construction
@@ -89,6 +89,7 @@ This is a Model Context Protocol (MCP) server that bridges Claude Desktop with t
 - Read tools return a `ToolResult` (human-readable text + `structured_content`); write/report tools and error paths return plain strings
 - Error handling for invalid UUIDs and missing parameters; pagination args validated by `_validate_pagination`
 - Supports filtering and including nested items via parameters
+- **Search ranking**: `search_todos` tokenizes the query, narrows in SQL with the longest token, then matches and ranks the rest in Python (`_search_tokens`, `_token_score`, `_rank_search_results`). Matching is against title and notes only — things.py also matches the parent AREA's title, which flooded results when an area name was searched
 - **Someday Project Filtering**: Tasks from Someday projects are filtered out of Today, Upcoming, and Anytime views to match the Things UI behavior and reduce clutter
 - Unit tests mock all external dependencies (Things.py, shell commands)
 - Pytest configuration in pyproject.toml with async support
