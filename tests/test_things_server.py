@@ -5,7 +5,7 @@ import pytest
 from tests._helpers import tool_text
 from things_mcp import url_scheme
 from things_mcp.server import (
-    get_todos, get_today, get_inbox, search_todos, search_advanced,
+    get_todos, get_today, get_upcoming, get_inbox, search_todos, search_advanced,
     get_logbook, _parse_logbook_period, _today_fallback, get_tag_usage,
     bulk_update_todos, update_todo, update_project, add_tag,
 )
@@ -543,3 +543,57 @@ async def test_a_projects_contained_items_are_left_out_of_the_payload(mocker):
     (item,) = result.structured_content['items']
     assert 'items' not in item
     assert "a child to-do" not in tool_text(result)
+
+
+@pytest.mark.asyncio
+async def test_get_todos_by_heading_returns_just_that_section(mocker):
+    """"The bugs in Gravehoard" -- one call, rather than pulling all 79 rows in
+    the project and filtering to the 15 client-side."""
+    mocker.patch('things.get', return_value={'uuid': 'h1', 'type': 'heading'})
+    mock_tasks = mocker.patch('things.tasks', return_value=[
+        {'uuid': 'b1', 'title': 'A bug', 'type': 'to-do', 'heading': 'h1'},
+    ])
+
+    result = tool_text(await get_todos(heading_uuid='h1'))
+
+    assert "A bug" in result
+    assert mock_tasks.call_args.kwargs['heading'] == 'h1'
+
+
+@pytest.mark.asyncio
+async def test_get_todos_rejects_a_uuid_that_is_not_a_heading(mocker):
+    mocker.patch('things.get', return_value={'uuid': 'p1', 'type': 'project'})
+
+    result = await get_todos(heading_uuid='p1')
+
+    assert "Invalid heading UUID" in tool_text(result)
+
+
+@pytest.mark.asyncio
+async def test_get_upcoming_within_days_bounds_the_window(mocker):
+    """"What is on my list this week" -- without this the caller pulls every
+    future row and filters by start_date."""
+    mocker.patch('things.projects', return_value=[])
+    mocker.patch('things.tasks', return_value=[])
+    mocker.patch('things_mcp.server.next_occurrences', return_value=[])
+    mocker.patch('things.upcoming', return_value=[
+        {'uuid': 'soon', 'title': 'Due this week', 'type': 'to-do',
+         'start': 'Someday', 'start_date': '2026-08-25'},
+        {'uuid': 'later', 'title': 'Due next month', 'type': 'to-do',
+         'start': 'Someday', 'start_date': '2026-10-01'},
+    ])
+    # A real datetime, since within_days does date arithmetic on it.
+    mocker.patch('things_mcp.server.datetime',
+                 **{'now.return_value': datetime(2026, 8, 22)})
+
+    result = tool_text(await get_upcoming(within_days=7))
+
+    assert "Due this week" in result
+    assert "Due next month" not in result
+
+
+@pytest.mark.asyncio
+async def test_get_upcoming_rejects_a_negative_window():
+    result = await get_upcoming(within_days=-1)
+
+    assert "within_days must be zero or a positive integer" in tool_text(result)

@@ -250,6 +250,10 @@ def format_todo(todo: dict) -> str:
     area_title = _lookup_title(todo.get('area'))
     if area_title:
         todo_text += f"\nArea: {area_title}"
+    elif todo.get('effective_area_title'):
+        # Inherited, not filed. Said plainly so the distinction survives into
+        # the text -- the to-do is in a project, and the project is in the area.
+        todo_text += f"\nArea: {todo['effective_area_title']} (via project)"
 
     if todo.get('tags'):
         todo_text += f"\nTags: {', '.join(todo['tags'])}"

@@ -19,6 +19,7 @@ from .formatters import (
     format_todo, format_project, format_area, format_tag, format_heading,
     display_order, upcoming_order,
 )
+from .areas import annotate as annotate_areas, parent_lookup
 from .auth import build_auth
 from .recurrence import next_occurrences
 from . import url_scheme
@@ -197,6 +198,10 @@ def _shape_page(page, formatter):
     """
     if formatter is not format_todo:
         return page
+    # Which area each row falls under, including the one inherited from its
+    # project. Only 13% of to-dos carry an area of their own; 98% fall under
+    # one. Resolved for the page, so the maps are built at most once per call.
+    page = annotate_areas(page)
     shaped = []
     database = None
     for item in page:
@@ -318,16 +323,25 @@ async def get_today(limit: int = None, offset: int = 0) -> ToolResult:
     return _paginate_result(todos, format_todo, limit, offset, "No items found")
 
 @mcp.tool
-async def get_upcoming(limit: int = None, offset: int = 0) -> ToolResult:
-    """Get upcoming todos
+async def get_upcoming(within_days: int = None, limit: int = None,
+                       offset: int = 0) -> ToolResult:
+    """Get upcoming todos, earliest first
+
+    Includes repeating tasks on their next occurrence and tasks that have only
+    a deadline, both of which the Things app shows here. Every todo carries its
+    full notes and tags, so a list can be reasoned about without a second pass.
 
     Args:
+        within_days: Only items scheduled within this many days from today,
+            for "what is on my list this week". Default: everything ahead.
         limit: Maximum number of items to return (default: all)
         offset: Number of items to skip from the start (default: 0)
     """
     err = _validate_pagination(limit, offset)
     if err:
         return _error_result(err)
+    if within_days is not None and within_days < 0:
+        return _error_result("Error: within_days must be zero or a positive integer")
     todos = list(things.upcoming() or [])
     # things.upcoming() is tasks(start_date="future"), and a repeating task's
     # future occurrence is not a row with a start date, so none of them are in
@@ -343,6 +357,11 @@ async def get_upcoming(limit: int = None, offset: int = 0) -> ToolResult:
     # orders by index, which put December 2026 ahead of August 2026. Upcoming
     # sorts flatter than display_order does -- see upcoming_order.
     todos = upcoming_order(todos)
+    if within_days is not None:
+        # Dates are 'YYYY-MM-DD' strings, so this compares lexicographically.
+        cutoff = (datetime.now().date() + timedelta(days=within_days)).isoformat()
+        todos = [t for t in todos
+                 if (t.get('start_date') or t.get('deadline') or '') <= cutoff]
     return _paginate_result(todos, format_todo, limit, offset, "No items found")
 
 @mcp.tool
@@ -466,12 +485,15 @@ async def get_trash(limit: int = None, offset: int = 0) -> ToolResult:
 
 # Basic operations
 @mcp.tool
-async def get_todos(project_uuid: str = None, include_items: bool = True,
+async def get_todos(project_uuid: str = None, heading_uuid: str = None,
+                    area_uuid: str = None, include_items: bool = True,
                     limit: int = None, offset: int = 0) -> ToolResult:
-    """Get todos from Things, optionally filtered by project
+    """Get todos from Things, optionally filtered by project, heading, or area
 
     Returns both human-readable text and structured JSON (the raw todo dicts
-    plus pagination metadata) so MCP clients can consume either form.
+    plus pagination metadata) so MCP clients can consume either form. Every
+    todo carries its full notes, tags, deadline and checklist, which is what
+    makes it possible to reason about priority across a list.
 
     When project_uuid is given, todos come back in the order the Things UI
     displays them: grouped by heading, and within each heading Anytime items in
@@ -479,7 +501,15 @@ async def get_todos(project_uuid: str = None, include_items: bool = True,
     their manual order.
 
     Args:
-        project_uuid: Optional UUID of a specific project to get todos from
+        project_uuid: Optional UUID of a project. Returns everything in it,
+            including todos filed under its headings.
+        heading_uuid: Optional UUID of a heading, for the todos under one
+            section of a project -- "the bugs in Gravehoard". Get the UUID from
+            get_headings(project_uuid=...) or get_item on the project.
+        area_uuid: Optional UUID of an area. Matches on the area a todo falls
+            under rather than the one it is filed in, so this includes todos
+            inside that area's projects -- which is nearly all of them. A todo
+            rarely carries an area of its own. See effective_area.
         include_items: Include checklist items
         limit: Maximum number of items to return (default: all)
         offset: Number of items to skip from the start (default: 0)
@@ -491,8 +521,22 @@ async def get_todos(project_uuid: str = None, include_items: bool = True,
         project = things.get(project_uuid)
         if not project or project.get('type') != 'project':
             return _error_result(f"Error: Invalid project UUID '{project_uuid}'")
+    if heading_uuid:
+        heading = things.get(heading_uuid)
+        if not heading or heading.get('type') != 'heading':
+            return _error_result(f"Error: Invalid heading UUID '{heading_uuid}'")
 
-    todos = things.todos(project=project_uuid, start=None, include_items=include_items)
+    if heading_uuid:
+        todos = things.tasks(type='to-do', heading=heading_uuid, start=None,
+                             include_items=include_items)
+    else:
+        todos = things.todos(project=project_uuid, start=None, include_items=include_items)
+
+    if area_uuid:
+        # Resolved rather than matched on TASK.area: filtering on the column
+        # alone answered "show me work tasks" with 4 rows where 185 qualify.
+        todos = [t for t in annotate_areas(todos or [])
+                 if t.get('effective_area') == area_uuid]
     # things.py orders by TASK.index alone, which is neither the heading grouping
     # nor the scheduling grouping Things displays.
     if project_uuid:
@@ -533,6 +577,13 @@ async def get_item(id: str, include_items: bool = True) -> ToolResult:
     # area, which overran the response limit outright.
     if include_items and item.get('type') == 'to-do':
         item = things.get(id, include_items=True) or item
+    elif item.get('type') in ('project', 'heading'):
+        # things.get routes a uuid to get_task_by_uuid, which forces
+        # include_items -- so a project arrives with every to-do and heading it
+        # holds, 90.8KB of the 91.6KB Gravehoard returned. format_project and
+        # format_heading query their own contents and render titles, so nothing
+        # reads those dicts. Full child data is what get_todos is for.
+        item = {k: v for k, v in item.items() if k != 'items'}
 
     formatters = {
         'to-do': lambda i: format_todo(i),
@@ -808,7 +859,10 @@ async def search_advanced(
         start_date: Filter by start date (YYYY-MM-DD)
         deadline: Filter by deadline (YYYY-MM-DD)
         tag: Filter by tag
-        area: Filter by area UUID
+        area: Filter by area UUID. Matches on the area an item falls under
+            rather than the one it is filed in, so it includes items inside
+            that area's projects -- which is nearly all of them, since a to-do
+            rarely carries an area of its own. See effective_area.
         type: Filter by item type (to-do, project, heading)
         last: Filter by creation date (e.g., '3d' for last 3 days, '1w' for last week, '1y' for last year)
         limit: Maximum number of items to return (default: all)
@@ -826,8 +880,6 @@ async def search_advanced(
         search_params["deadline"] = deadline
     if tag:
         search_params["tag"] = tag
-    if area:
-        search_params["area"] = area
     if last:
         search_params["last"] = last
 
@@ -837,6 +889,13 @@ async def search_advanced(
         todos = things.tasks(type=type, **search_params)
     else:
         todos = things.todos(**search_params)
+
+    if area:
+        # Resolved rather than passed to things.py as a TASK.area filter, which
+        # only matches items filed directly in the area: on a real database
+        # that answered "work tasks" with 4 rows where 185 qualify.
+        todos = [t for t in annotate_areas(todos or [])
+                 if t.get('effective_area') == area]
     return _paginate_result(todos, format_todo, limit, offset, "No matching todos found")
 
 # Recent items
