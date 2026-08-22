@@ -1,6 +1,18 @@
 import pytest
 from unittest.mock import Mock, patch
 
+
+@pytest.fixture(autouse=True)
+def no_real_things_database(monkeypatch):
+    """Point things.py at a database that cannot exist, for every test.
+
+    The suite mocks things.py wholesale, so nothing should reach a real Things
+    database -- but on a Mac with Things installed, a call someone forgot to mock
+    quietly succeeds and the test only fails later, on a machine without one.
+    This makes that failure local and immediate instead of a red CI run.
+    """
+    monkeypatch.setenv("THINGSDB", "/nonexistent/things-mcp-tests/main.sqlite")
+
 @pytest.fixture
 def mock_todo():
     """Sample todo data for testing."""

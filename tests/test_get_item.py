@@ -36,6 +36,8 @@ async def test_passes_include_items_through_to_things(mocker, mock_todo):
 async def test_formats_a_project(mocker, mock_project):
     mocker.patch('things.get', return_value=mock_project)
     mocker.patch('things.todos', return_value=[])
+    # format_project always looks up the project's headings.
+    mocker.patch('things.tasks', return_value=[])
 
     text = tool_text(await get_item('test-project-uuid'))
 
