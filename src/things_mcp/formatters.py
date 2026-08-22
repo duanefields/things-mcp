@@ -171,6 +171,8 @@ def format_todo(todo: dict) -> str:
 
     if todo.get('start_date'):
         todo_text += f"\nStart Date: {todo['start_date']}"
+    if todo.get('repeating'):
+        todo_text += "\nRepeating: yes (Start Date is the next occurrence)"
     if todo.get('deadline'):
         todo_text += f"\nDeadline: {todo['deadline']}"
     if todo.get('stop_date'):

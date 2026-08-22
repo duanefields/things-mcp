@@ -19,6 +19,7 @@ from .formatters import (
     display_order,
 )
 from .auth import build_auth
+from .recurrence import next_occurrences
 from . import url_scheme
 
 # Configure logging
@@ -88,11 +89,16 @@ def _today_fallback():
         start_date=False, deadline="past", deadline_suppressed=False, include_items=True
     ) or []
     result = [*regular, *unconfirmed_scheduled, *unconfirmed_overdue]
-    result.sort(key=lambda t: (
-        t["today_index"] if t.get("today_index") is not None else 0,
-        t["start_date"] if t.get("start_date") is not None else "9999-99-99",
-    ))
+    result.sort(key=_today_sort_key)
     return result
+
+
+def _today_sort_key(todo):
+    """things.today()'s own sort key, made None-safe (see _today_fallback)."""
+    return (
+        todo["today_index"] if todo.get("today_index") is not None else 0,
+        todo["start_date"] if todo.get("start_date") is not None else "9999-99-99",
+    )
 
 
 # Helper function to filter out tasks from Someday projects
@@ -220,8 +226,17 @@ async def get_today(limit: int = None, offset: int = 0) -> ToolResult:
         todos = things.today(include_items=True)
     except TypeError:
         todos = _today_fallback()
+    todos = list(todos or [])
+    # things.py's Today prediction leaves repeating tasks out by its own
+    # admission. A repeater whose next occurrence has arrived belongs in Today
+    # but has no row yet -- Things only materializes one when the app next
+    # opens -- so project it, alongside the other predictions today() makes.
+    today_iso = datetime.now().date().isoformat()
+    due = [t for t in next_occurrences() if t['start_date'] <= today_iso]
+    if due:
+        todos = sorted(todos + due, key=_today_sort_key)
     # Filter out tasks from Someday projects, then paginate
-    todos = filter_someday_project_tasks(todos or [])
+    todos = filter_someday_project_tasks(todos)
     return _paginate_result(todos, format_todo, limit, offset, "No items found")
 
 @mcp.tool
@@ -235,9 +250,14 @@ async def get_upcoming(limit: int = None, offset: int = 0) -> ToolResult:
     err = _validate_pagination(limit, offset)
     if err:
         return _error_result(err)
-    todos = things.upcoming(include_items=True)
+    todos = list(things.upcoming(include_items=True) or [])
+    # things.upcoming() is tasks(start_date="future"), and a repeating task's
+    # future occurrence is not a row with a start date, so none of them are in
+    # there -- on a real database that hid 68 of the 107 rows the app shows.
+    today_iso = datetime.now().date().isoformat()
+    todos += [t for t in next_occurrences() if t['start_date'] > today_iso]
     # Filter out tasks from Someday projects, then paginate
-    todos = filter_someday_project_tasks(todos or [])
+    todos = filter_someday_project_tasks(todos)
     # Every item here is scheduled, so this is purely a sort by date. things.py
     # orders by index, which put December 2026 ahead of August 2026.
     todos = display_order(todos)

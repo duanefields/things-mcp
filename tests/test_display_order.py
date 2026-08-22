@@ -265,3 +265,32 @@ class TestAnytimeExcludesHeadings:
         result = await get_anytime()
 
         assert [i['title'] for i in result.structured_content['items']] == ['a real task']
+
+
+def test_upcoming_interleaves_projected_repeaters_with_real_rows():
+    """A projected repeating occurrence sorts among real rows by todayIndex.
+
+    Real values from the app's Upcoming view for Monday 2026-08-24, captured
+    2026-08-22. The app interleaves them -- three real rows, a repeater, a
+    real row, a repeater -- rather than grouping the repeaters at either end,
+    so the template rows' todayIndex is meaningful and must not be overridden.
+    """
+    day = [
+        {'uuid': 'a', 'title': 'Transfer funds from eBay', 'type': 'to-do',
+         'start': 'Someday', 'start_date': '2026-08-24', 'today_index': -3256, 'index': 0},
+        {'uuid': 'b', 'title': 'Post fork to things group on Reddit', 'type': 'to-do',
+         'start': 'Someday', 'start_date': '2026-08-24', 'today_index': -2776, 'index': -674},
+        {'uuid': 'c', 'title': 'Check in on things logs', 'type': 'to-do',
+         'start': 'Someday', 'start_date': '2026-08-24', 'today_index': -2198, 'index': 0},
+        {'uuid': 'd', 'title': 'Take out the trash for Tuesday pickup', 'type': 'to-do',
+         'start': 'Someday', 'start_date': '2026-08-24', 'today_index': -2166, 'index': -5661,
+         'repeating': True},
+        {'uuid': 'e', 'title': 'Pay balance if any', 'type': 'to-do',
+         'start': 'Someday', 'start_date': '2026-08-24', 'today_index': -1459, 'index': 0},
+        {'uuid': 'f', 'title': 'Take out recycling for Tuesday pickup', 'type': 'to-do',
+         'start': 'Someday', 'start_date': '2026-08-24', 'today_index': 5827, 'index': -5841,
+         'repeating': True},
+    ]
+    shuffled = [day[3], day[5], day[0], day[4], day[2], day[1]]
+
+    assert [t['uuid'] for t in display_order(shuffled)] == ['a', 'b', 'c', 'd', 'e', 'f']
