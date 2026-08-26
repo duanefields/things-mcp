@@ -60,13 +60,16 @@ else
   jget() { printf '%s' "$body" | plutil -extract "$1" raw -o - - 2>/dev/null; }
   status=$(jget status);   running=$(jget things_running)
   wal=$(jget database_wal_age_seconds); python=$(jget python_version)
+  write_ok=$(jget last_write_dispatch.ok)
+  write_error=$(jget last_write_dispatch.error)
 
   if [[ -z "$status" ]]; then
     problems+=("could not parse the health response from $HEALTH_URL")
   fi
   # Whole seconds; the log is meant to be skimmed for trends.
   wal_s="?"; [[ -n "$wal" ]] && wal_s=$(printf '%.0f' "$wal" 2>/dev/null || echo "?")
-  report+="status=${status:-?} things_running=${running:-?} wal_age=${wal_s}s python=${python:-?}"
+  report+="status=${status:-?} things_running=${running:-?} wal_age=${wal_s}s"
+  report+=" last_write=${write_ok:-none} python=${python:-?}"
 
   [[ -n "$status" && "$status" != "ok" ]] && problems+=("health status is '$status'")
   [[ "$running" == "false" || "$running" == "False" ]] && problems+=("Things 3 is not running; writes will vanish")
@@ -75,6 +78,18 @@ else
     if (( $(printf '%.0f' "$wal") > MAX_WAL_AGE )); then
       problems+=("database untouched for ${wal_s}s (limit ${MAX_WAL_AGE}s); sync may be dead")
     fi
+  fi
+
+  # The server has published this since dispatch tracking was added, and until
+  # now nothing read it. The two checks above do not cover it: a revoked Apple
+  # Events grant leaves Things running and the WAL fresh -- Things Cloud keeps
+  # syncing on its own -- while every URL this server dispatches goes nowhere.
+  #
+  # Only "false" is a fault. An empty value means this process has not
+  # dispatched anything since it started, which is the normal state after a
+  # restart and must not alert.
+  if [[ "$write_ok" == "false" || "$write_ok" == "False" ]]; then
+    problems+=("last write dispatch failed: ${write_error:-no detail}; Things may have stopped accepting URLs, or the Apple Events grant was revoked")
   fi
 fi
 
