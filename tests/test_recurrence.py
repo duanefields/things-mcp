@@ -102,6 +102,7 @@ def test_next_occurrences_skips_a_template_that_cannot_be_read(mocker):
 async def test_get_upcoming_includes_the_next_occurrence(mocker, repeating):
     mocker.patch('things.upcoming', return_value=[])
     mocker.patch('things.projects', return_value=[])
+    mocker.patch('things_mcp.server.datetime', **{'now.return_value.date.return_value.isoformat.return_value': TODAY})
     repeating("2026-09-01")
 
     result = tool_text(await get_upcoming())
@@ -132,6 +133,7 @@ async def test_get_upcoming_sorts_a_projection_in_by_date(mocker, repeating):
          'start': 'Someday', 'start_date': '2026-12-01', 'today_index': 0, 'index': 0},
     ])
     mocker.patch('things.projects', return_value=[])
+    mocker.patch('things_mcp.server.datetime', **{'now.return_value.date.return_value.isoformat.return_value': TODAY})
     repeating("2026-09-01")
 
     result = tool_text(await get_upcoming())

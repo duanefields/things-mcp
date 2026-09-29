@@ -12,10 +12,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import anyio
 import things
-from things.database import Database
+from things.database import DEFAULT_FILEPATH, Database
 from fastmcp import FastMCP
 from mcp.types import Icon
-from fastmcp.tools.tool import ToolResult
+from fastmcp.tools import ToolResult
 from starlette.responses import JSONResponse
 from .formatters import (
     format_todo, format_project, format_area, format_tag, format_heading,
@@ -339,7 +339,7 @@ def _error_result(msg):
 
 # List view tools
 @mcp.tool
-async def get_inbox(limit: int = None, offset: int = 0) -> ToolResult:
+async def get_inbox(limit: int | None = None, offset: int = 0) -> ToolResult:
     """Get todos from the Inbox -- captured but not yet organized
 
     A project appears as one row without the to-dos inside it; use
@@ -356,7 +356,7 @@ async def get_inbox(limit: int = None, offset: int = 0) -> ToolResult:
     return _paginate_result(todos, format_todo, limit, offset, "No items found")
 
 @mcp.tool
-async def get_today(limit: int = None, offset: int = 0) -> ToolResult:
+async def get_today(limit: int | None = None, offset: int = 0) -> ToolResult:
     """Get todos scheduled for today, plus anything overdue
 
     A project appears as one row without the to-dos inside it; use
@@ -387,7 +387,7 @@ async def get_today(limit: int = None, offset: int = 0) -> ToolResult:
     return _paginate_result(todos, format_todo, limit, offset, "No items found")
 
 @mcp.tool
-async def get_upcoming(within_days: int = None, limit: int = 50,
+async def get_upcoming(within_days: int | None = None, limit: int = 50,
                        offset: int = 0) -> ToolResult:
     """Get upcoming todos, earliest first
 
@@ -572,8 +572,8 @@ async def get_trash(limit: int = 50, offset: int = 0) -> ToolResult:
 
 # Basic operations
 @mcp.tool
-async def get_todos(project_uuid: str = None, heading_uuid: str = None,
-                    area_uuid: str = None, include_items: bool = True,
+async def get_todos(project_uuid: str | None = None, heading_uuid: str | None = None,
+                    area_uuid: str | None = None, include_items: bool = True,
                     limit: int = 50, offset: int = 0) -> ToolResult:
     """Get todos from Things, optionally filtered by project, heading, or area
 
@@ -608,11 +608,11 @@ async def get_todos(project_uuid: str = None, heading_uuid: str = None,
         return _error_result(err)
     if project_uuid:
         project = things.get(project_uuid)
-        if not project or project.get('type') != 'project':
+        if not isinstance(project, dict) or project.get('type') != 'project':
             return _error_result(f"Error: Invalid project UUID '{project_uuid}'")
     if heading_uuid:
         heading = things.get(heading_uuid)
-        if not heading or heading.get('type') != 'heading':
+        if not isinstance(heading, dict) or heading.get('type') != 'heading':
             return _error_result(f"Error: Invalid heading UUID '{heading_uuid}'")
 
     if heading_uuid:
@@ -659,7 +659,7 @@ async def get_item(id: str, include_items: bool = True) -> ToolResult:
             project's todos, an area's projects, a tag's tagged items
     """
     item = things.get(id)
-    if not item:
+    if not isinstance(item, dict):
         return _error_result(f"Error: No item found with ID '{id}'")
 
     # Only a to-do needs things.get to fetch its nested content -- the checklist,
@@ -670,7 +670,9 @@ async def get_item(id: str, include_items: bool = True) -> ToolResult:
     # structured_content for nothing -- measured at 213KB against a 134-byte
     # area, which overran the response limit outright.
     if include_items and item.get('type') == 'to-do':
-        item = things.get(id, include_items=True) or item
+        full = things.get(id, include_items=True)
+        if isinstance(full, dict):
+            item = full
     elif item.get('type') in ('project', 'heading'):
         # things.get routes a uuid to get_task_by_uuid, which forces
         # include_items -- so a project arrives with every to-do and heading it
@@ -686,14 +688,14 @@ async def get_item(id: str, include_items: bool = True) -> ToolResult:
         'heading': lambda i: format_heading(i, include_items),
         'tag': lambda i: format_tag(i, include_items),
     }
-    formatter = formatters.get(item.get('type'), format_todo)
+    formatter = formatters.get(item.get('type', ''), format_todo)
     # One item, so the pagination envelope collapses to {items: [item],
     # count: 1, ...}. Reused anyway to keep the structured shape identical to
     # every other read tool.
     return _paginate_result([item], formatter, None, 0, "No item found")
 
 @mcp.tool
-async def get_projects(include_items: bool = False, limit: int = None, offset: int = 0) -> ToolResult:
+async def get_projects(include_items: bool = False, limit: int | None = None, offset: int = 0) -> ToolResult:
     """Get all projects, across every area
 
     A project's own notes are included -- often where the context describing
@@ -715,7 +717,7 @@ async def get_projects(include_items: bool = False, limit: int = None, offset: i
     )
 
 @mcp.tool
-async def get_areas(include_items: bool = False, limit: int = None, offset: int = 0) -> ToolResult:
+async def get_areas(include_items: bool = False, limit: int | None = None, offset: int = 0) -> ToolResult:
     """Get all areas, the top level of the hierarchy
 
     include_items lists what each area holds by title. To get the to-dos under
@@ -738,7 +740,7 @@ async def get_areas(include_items: bool = False, limit: int = None, offset: int 
 
 # Tag operations
 @mcp.tool
-async def get_tags(include_items: bool = False, limit: int = None, offset: int = 0) -> ToolResult:
+async def get_tags(include_items: bool = False, limit: int | None = None, offset: int = 0) -> ToolResult:
     """Get all tags
 
     Args:
@@ -802,6 +804,7 @@ async def get_counts() -> ToolResult:
     ):
         try:
             result = await tool(limit=1)
+            assert result.structured_content is not None
             lists[name] = result.structured_content.get("total", 0)
         except Exception:
             logger.warning("Could not count %s", name, exc_info=True)
@@ -889,7 +892,7 @@ async def get_tag_usage(only_unused: bool = False) -> str:
     return "\n".join(f"{name}: {open_c} open, {all_c} total" for name, open_c, all_c in rows)
 
 @mcp.tool
-async def get_headings(project_uuid: str = None, limit: int = None, offset: int = 0) -> ToolResult:
+async def get_headings(project_uuid: str | None = None, limit: int | None = None, offset: int = 0) -> ToolResult:
     """Get headings, the sections that group to-dos inside a project
 
     Returns each heading's UUID, which get_todos(heading_uuid=...) takes to
@@ -906,7 +909,7 @@ async def get_headings(project_uuid: str = None, limit: int = None, offset: int 
         return _error_result(err)
     if project_uuid:
         project = things.get(project_uuid)
-        if not project or project.get('type') != 'project':
+        if not isinstance(project, dict) or project.get('type') != 'project':
             return _error_result(f"Error: Invalid project UUID '{project_uuid}'")
         headings = things.tasks(type='heading', project=project_uuid)
     else:
@@ -1033,13 +1036,13 @@ async def search_todos(query: str, limit: int = 50, offset: int = 0) -> ToolResu
 
 @mcp.tool
 async def search_advanced(
-    status: str = None,
-    start_date: str = None,
-    deadline: str = None,
-    tag: str = None,
-    area: str = None,
-    type: str = None,
-    last: str = None,
+    status: str | None = None,
+    start_date: str | None = None,
+    deadline: str | None = None,
+    tag: str | None = None,
+    area: str | None = None,
+    type: str | None = None,
+    last: str | None = None,
     limit: int = 50,
     offset: int = 0
 ) -> ToolResult:
@@ -1122,8 +1125,8 @@ async def get_recent(period: str, limit: int = 50, offset: int = 0) -> ToolResul
     return _paginate_result(todos, format_todo, limit, offset, f"No items found in the last {period}")
 
 @mcp.tool
-async def get_deadlines(within_days: int = None, area_uuid: str = None,
-                        limit: int = None, offset: int = 0) -> ToolResult:
+async def get_deadlines(within_days: int | None = None, area_uuid: str | None = None,
+                        limit: int | None = None, offset: int = 0) -> ToolResult:
     """Get incomplete items that have a deadline, earliest first
 
     Answers "what is due, what is overdue" without pulling a list and filtering
@@ -1449,16 +1452,16 @@ def _created_result(kind, title, item_id, wait_ms):
 @mcp.tool
 async def add_todo(
     title: str,
-    notes: str = None,
-    when: str = None,
-    deadline: str = None,
-    tags: List[str] = None,
-    checklist_items: List[str] = None,
-    list_id: str = None,
-    list_title: str = None,
-    heading: str = None,
-    heading_id: str = None,
-    wait_ms: int = None
+    notes: str | None = None,
+    when: str | None = None,
+    deadline: str | None = None,
+    tags: List[str] | None = None,
+    checklist_items: List[str] | None = None,
+    list_id: str | None = None,
+    list_title: str | None = None,
+    heading: str | None = None,
+    heading_id: str | None = None,
+    wait_ms: int | None = None
 ):
     """Create a new todo in Things, returning its ID.
 
@@ -1514,11 +1517,11 @@ async def add_todo(
 @mcp.tool
 async def add_todos(
     todos: List[dict],
-    list_id: str = None,
-    list_title: str = None,
-    heading: str = None,
-    heading_id: str = None,
-    wait_ms: int = None
+    list_id: str | None = None,
+    list_title: str | None = None,
+    heading: str | None = None,
+    heading_id: str | None = None,
+    wait_ms: int | None = None
 ):
     """Create several todos at once, in the order given.
 
@@ -1676,12 +1679,12 @@ async def trash_item(id: str) -> str:
         id: UUID of the to-do or project to trash
     """
     item = things.get(id)
-    if not item:
+    if not isinstance(item, dict):
         return f"Error: No item found with ID '{id}'"
     if item.get('trashed'):
         return f"Already in the Trash: {item['title']} (id: {id})"
 
-    kind = {'to-do': 'to do', 'project': 'project'}.get(item.get('type'))
+    kind = {'to-do': 'to do', 'project': 'project'}.get(item.get('type', ''))
     if kind is None:
         return f"Error: Cannot trash a {item.get('type')} — only to-dos and projects"
 
@@ -1689,7 +1692,7 @@ async def trash_item(id: str) -> str:
     return f"Moved to Trash: {item['title']} (id: {id})"
 
 @mcp.tool
-async def update_area(id: str, title: str = None, tags: List[str] = None) -> str:
+async def update_area(id: str, title: str | None = None, tags: List[str] | None = None) -> str:
     """Update an existing Area in Things 3 (rename and/or set tags)
 
     The Things URL scheme has no area operations, so this uses AppleScript.
@@ -1718,15 +1721,15 @@ async def update_area(id: str, title: str = None, tags: List[str] = None) -> str
 @mcp.tool
 async def add_project(
     title: str,
-    notes: str = None,
-    when: str = None,
-    deadline: str = None,
-    tags: List[str] = None,
-    area_id: str = None,
-    area_title: str = None,
-    todos: List[str] = None,
-    items: List[dict] = None,
-    wait_ms: int = None
+    notes: str | None = None,
+    when: str | None = None,
+    deadline: str | None = None,
+    tags: List[str] | None = None,
+    area_id: str | None = None,
+    area_title: str | None = None,
+    todos: List[str] | None = None,
+    items: List[dict] | None = None,
+    wait_ms: int | None = None
 ):
     """Create a new project in Things, returning its ID.
 
@@ -1849,23 +1852,23 @@ async def add_project(
 @mcp.tool
 async def update_todo(
     id: str,
-    title: str = None,
-    notes: str = None,
-    prepend_notes: str = None,
-    append_notes: str = None,
-    when: str = None,
-    deadline: str = None,
-    tags: List[str] = None,
-    add_tags: List[str] = None,
-    completed: bool = None,
-    canceled: bool = None,
-    list: str = None,
-    list_id: str = None,
-    heading: str = None,
-    heading_id: str = None,
-    checklist_items: List[str] = None,
-    prepend_checklist_items: List[str] = None,
-    append_checklist_items: List[str] = None,
+    title: str | None = None,
+    notes: str | None = None,
+    prepend_notes: str | None = None,
+    append_notes: str | None = None,
+    when: str | None = None,
+    deadline: str | None = None,
+    tags: List[str] | None = None,
+    add_tags: List[str] | None = None,
+    completed: bool | None = None,
+    canceled: bool | None = None,
+    list: str | None = None,
+    list_id: str | None = None,
+    heading: str | None = None,
+    heading_id: str | None = None,
+    checklist_items: List[str] | None = None,
+    prepend_checklist_items: List[str] | None = None,
+    append_checklist_items: List[str] | None = None,
 ) -> str:
     """Update an existing todo in Things
 
@@ -1919,16 +1922,16 @@ async def update_todo(
 @mcp.tool
 async def bulk_update_todos(
     ids: List[str],
-    list: str = None,
-    list_id: str = None,
-    tags: List[str] = None,
-    add_tags: List[str] = None,
-    when: str = None,
-    deadline: str = None,
-    heading: str = None,
-    heading_id: str = None,
-    completed: bool = None,
-    canceled: bool = None,
+    list: str | None = None,
+    list_id: str | None = None,
+    tags: List[str] | None = None,
+    add_tags: List[str] | None = None,
+    when: str | None = None,
+    deadline: str | None = None,
+    heading: str | None = None,
+    heading_id: str | None = None,
+    completed: bool | None = None,
+    canceled: bool | None = None,
 ) -> str:
     """Apply the same change to many to-dos in a single Things round-trip.
 
@@ -1997,15 +2000,15 @@ async def bulk_update_todos(
 @mcp.tool
 async def update_project(
     id: str,
-    title: str = None,
-    notes: str = None,
-    prepend_notes: str = None,
-    append_notes: str = None,
-    when: str = None,
-    deadline: str = None,
-    tags: List[str] = None,
-    completed: bool = None,
-    canceled: bool = None
+    title: str | None = None,
+    notes: str | None = None,
+    prepend_notes: str | None = None,
+    append_notes: str | None = None,
+    when: str | None = None,
+    deadline: str | None = None,
+    tags: List[str] | None = None,
+    completed: bool | None = None,
+    canceled: bool | None = None
 ) -> str:
     """Update an existing project in Things
 
@@ -2043,8 +2046,8 @@ async def update_project(
 @mcp.tool
 async def show_item(
     id: str,
-    query: str = None,
-    filter_tags: List[str] = None
+    query: str | None = None,
+    filter_tags: List[str] | None = None
 ) -> str:
     """Show a specific item or list in Things
 
@@ -2092,7 +2095,7 @@ def _wal_age_seconds():
     a health check that raises is worse than one that reports nothing.
     """
     try:
-        db_path = os.getenv("THINGSDB") or things.database.DEFAULT_FILEPATH
+        db_path = os.getenv("THINGSDB") or DEFAULT_FILEPATH
         wal = Path(f"{db_path}-wal")
         return round(time.time() - wal.stat().st_mtime, 1)
     except Exception:

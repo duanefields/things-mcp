@@ -10,7 +10,7 @@ from datetime import datetime
 
 import pytest
 
-from tests._helpers import tool_text
+from tests._helpers import tool_text, tool_data
 from things_mcp.formatters import display_order, schedule_group
 from things_mcp.server import (
     get_today,
@@ -267,7 +267,7 @@ class TestAnytimeExcludesHeadings:
 
         result = await get_anytime()
 
-        assert [i['title'] for i in result.structured_content['items']] == ['a real task']
+        assert [i['title'] for i in tool_data(result)['items']] == ['a real task']
 
 
 def test_upcoming_interleaves_projected_repeaters_with_real_rows():
@@ -333,7 +333,7 @@ async def test_today_keeps_the_order_the_app_shows(mocker):
 
     result = await get_today()
 
-    ordered = [i['title'] for i in result.structured_content['items']]
+    ordered = [i['title'] for i in tool_data(result)['items']]
     assert ordered == [
         'Smoke chicken wings for dinner before',
         'Fix garage entry door latch',

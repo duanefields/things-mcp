@@ -2,7 +2,7 @@
 
 import pytest
 
-from tests._helpers import tool_text
+from tests._helpers import tool_text, tool_data
 from things_mcp.server import _rank_search_results, search_todos
 
 
@@ -130,4 +130,4 @@ class TestSearchTodos:
         result = await search_todos('dentist', limit=2)
 
         assert 'Showing 1-2 of 5 items' in tool_text(result)
-        assert result.structured_content['total'] == 5
+        assert tool_data(result)['total'] == 5

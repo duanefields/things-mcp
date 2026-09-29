@@ -2,7 +2,7 @@ import json
 import urllib.parse
 from datetime import datetime, timedelta
 import pytest
-from tests._helpers import tool_text
+from tests._helpers import tool_text, tool_data
 from things_mcp import url_scheme
 from things_mcp.server import (
     get_todos, get_today, get_upcoming, get_inbox, search_todos, search_advanced,
@@ -19,7 +19,7 @@ async def test_get_todos_includes_checklist(mocker, mock_todo):
     result = await get_todos(include_items=True)
 
     # get_todos now returns a ToolResult: human-readable text in channel 1...
-    text = result.content[0].text
+    text = tool_text(result)
     assert "Checklist:" in text
     assert "First item" in text
     mock_things_todos.assert_called_once_with(project=None, start=None, include_items=True)
@@ -32,7 +32,7 @@ async def test_get_todos_returns_structured_content(mocker, mock_todo):
 
     result = await get_todos(include_items=True)
 
-    sc = result.structured_content
+    sc = tool_data(result)
     assert sc["count"] == 1
     assert sc["total"] == 1
     assert sc["items"][0]["uuid"] == mock_todo["uuid"]
@@ -50,19 +50,19 @@ async def test_get_todos_structured_reflects_pagination(mocker):
 
     result = await get_todos(limit=2, offset=1)
 
-    sc = result.structured_content
+    sc = tool_data(result)
     assert sc["total"] == 5
     assert sc["count"] == 2
     assert [it["uuid"] for it in sc["items"]] == ["1", "2"]
-    assert "Showing 2-3 of 5 items" in result.content[0].text
+    assert "Showing 2-3 of 5 items" in tool_text(result)
 
 
 @pytest.mark.asyncio
 async def test_get_todos_invalid_project_uuid_structured_error(mocker):
     mocker.patch('things.get', return_value=None)
     result = await get_todos(project_uuid="bad")
-    assert "Invalid project UUID" in result.content[0].text
-    assert "error" in result.structured_content
+    assert "Invalid project UUID" in tool_text(result)
+    assert "error" in tool_data(result)
 
 
 @pytest.mark.asyncio
@@ -540,7 +540,7 @@ async def test_a_projects_contained_items_are_left_out_of_the_payload(mocker):
 
     result = await get_today()
 
-    (item,) = result.structured_content['items']
+    (item,) = tool_data(result)['items']
     assert 'items' not in item
     assert "a child to-do" not in tool_text(result)
 

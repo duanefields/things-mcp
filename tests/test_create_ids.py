@@ -12,15 +12,12 @@ from things_mcp.server import (
     add_todo,
     add_todos,
 )
-from tests._helpers import tool_text
+from tests._helpers import tool_text, tool_data
 
 
 def task(title, uuid, index=0):
     return {"title": title, "uuid": uuid, "index": index, "type": "to-do"}
 
-
-def sc(result):
-    return result.structured_content
 
 
 class TestValidateWaitMs:
@@ -31,14 +28,14 @@ class TestValidateWaitMs:
         assert _validate_wait_ms(0) is None
 
     def test_negative_is_rejected(self):
-        assert "0 or greater" in _validate_wait_ms(-1)
+        assert "0 or greater" in (_validate_wait_ms(-1) or "")
 
     def test_absurdly_large_is_rejected(self):
-        assert "or less" in _validate_wait_ms(10**9)
+        assert "or less" in (_validate_wait_ms(10**9) or "")
 
     @pytest.mark.parametrize("value", ["1500", 1.5, True])
     def test_non_integers_are_rejected(self, value):
-        assert "integer" in _validate_wait_ms(value)
+        assert "integer" in (_validate_wait_ms(value) or "")
 
 
 class TestResolveCreated:
@@ -85,7 +82,7 @@ class TestAddTodo:
             server, "_existing_ids", return_value=set()
         ), patch.object(server, "_tasks_of", return_value=[task("Write tests", "uuid-1")]):
             result = await add_todo(title="Write tests")
-        assert sc(result) == {"id": "uuid-1", "id_resolved": True, "title": "Write tests"}
+        assert tool_data(result) == {"id": "uuid-1", "id_resolved": True, "title": "Write tests"}
         assert "uuid-1" in tool_text(result)
 
     async def test_wait_ms_zero_skips_the_lookup(self):
@@ -94,8 +91,8 @@ class TestAddTodo:
         ) as tasks:
             result = await add_todo(title="Fire and forget", wait_ms=0)
         tasks.assert_not_called()
-        assert sc(result)["id"] is None
-        assert sc(result)["id_resolved"] is False
+        assert tool_data(result)["id"] is None
+        assert tool_data(result)["id_resolved"] is False
 
     async def test_unresolved_id_claims_neither_success_nor_failure(self):
         """A null ID is genuinely ambiguous. Claiming the item "was almost
@@ -106,7 +103,7 @@ class TestAddTodo:
         ), patch.object(server, "_tasks_of", return_value=[]):
             result = await add_todo(title="Slow one", wait_ms=50)
         text = tool_text(result)
-        assert sc(result)["id_resolved"] is False
+        assert tool_data(result)["id_resolved"] is False
         assert "UNCONFIRMED" in text
         assert "almost certainly created" not in text
         # It must say what to do, or the caller either invents a duplicate or
@@ -117,7 +114,7 @@ class TestAddTodo:
         with patch.object(server.url_scheme, "execute_url") as dispatch:
             result = await add_todo(title="x", wait_ms=-1)
         dispatch.assert_not_called()
-        assert "0 or greater" in sc(result)["error"]
+        assert "0 or greater" in tool_data(result)["error"]
 
 
 class TestAddProject:
@@ -126,7 +123,7 @@ class TestAddProject:
             server, "_existing_ids", return_value=set()
         ), patch.object(server, "_tasks_of", return_value=[task("Launch", "proj-1")]):
             result = await add_project(title="Launch")
-        assert sc(result)["id"] == "proj-1"
+        assert tool_data(result)["id"] == "proj-1"
 
 
 class TestAddTodos:
@@ -150,8 +147,8 @@ class TestAddTodos:
         assert dispatch.call_count == 1, "a batch must be a single dispatch"
         payload = self.dispatch_payload(dispatch)
         assert [p["attributes"]["title"] for p in payload] == ["T0", "T1", "T2"]
-        assert [i["id"] for i in sc(result)["items"]] == ["u0", "u1", "u2"]
-        assert sc(result)["resolved"] == 3
+        assert [i["id"] for i in tool_data(result)["items"]] == ["u0", "u1", "u2"]
+        assert tool_data(result)["resolved"] == 3
 
     async def test_maps_fields_to_url_scheme_names(self):
         with patch.object(server.url_scheme, "execute_url") as dispatch, patch.object(
@@ -207,25 +204,25 @@ class TestAddTodos:
         with patch.object(server.url_scheme, "execute_url") as dispatch:
             result = await add_todos(todos=[])
         dispatch.assert_not_called()
-        assert "at least one" in sc(result)["error"]
+        assert "at least one" in tool_data(result)["error"]
 
     async def test_missing_title_is_rejected_by_position(self):
         with patch.object(server.url_scheme, "execute_url") as dispatch:
             result = await add_todos(todos=[{"title": "ok"}, {"notes": "no title"}])
         dispatch.assert_not_called()
-        assert "Todo 2" in sc(result)["error"]
+        assert "Todo 2" in tool_data(result)["error"]
 
     async def test_unknown_field_is_rejected(self):
         with patch.object(server.url_scheme, "execute_url") as dispatch:
             result = await add_todos(todos=[{"title": "t", "prioritY": "high"}])
         dispatch.assert_not_called()
-        assert "prioritY" in sc(result)["error"]
+        assert "prioritY" in tool_data(result)["error"]
 
     async def test_non_object_entry_is_rejected(self):
         with patch.object(server.url_scheme, "execute_url") as dispatch:
-            result = await add_todos(todos=["just a string"])
+            result = await add_todos(todos=["just a string"])  # pyright: ignore[reportArgumentType]
         dispatch.assert_not_called()
-        assert "Todo 1" in sc(result)["error"]
+        assert "Todo 1" in tool_data(result)["error"]
 
     async def test_unresolved_ids_claim_neither_success_nor_failure(self):
         with patch.object(server.url_scheme, "execute_url"), patch.object(
@@ -235,8 +232,8 @@ class TestAddTodos:
         ):
             result = await add_todos(todos=[{"title": "a"}, {"title": "b"}], wait_ms=50)
         text = tool_text(result)
-        assert sc(result)["resolved"] == 0
-        assert sc(result)["count"] == 2
+        assert tool_data(result)["resolved"] == 0
+        assert tool_data(result)["count"] == 2
         # The header must not open with "Created" when nothing was confirmed.
         assert not text.startswith("Created")
         assert "could not be confirmed" in text
@@ -253,7 +250,7 @@ class TestAddTodos:
         ):
             result = await add_todos(todos=[{"title": "a"}, {"title": "b"}])
         text = tool_text(result)
-        assert sc(result)["resolved"] == 2
+        assert tool_data(result)["resolved"] == 2
         assert text.startswith("Created 2 todos")
         assert "UNCONFIRMED" not in text
 
@@ -273,7 +270,7 @@ class TestAddTodos:
             result = await add_todos(todos=[{"title": f"T{i}"} for i in range(20)])
 
         assert dispatch.call_count == 1
-        assert sc(result)["resolved"] == 20
+        assert tool_data(result)["resolved"] == 20
         assert len(calls) == 0, "everything was already present; no waiting needed"
 
 

@@ -1,15 +1,13 @@
 import json
 import urllib.parse
 from unittest.mock import patch
+from tests._helpers import tool_data, tool_text
 
 import pytest
 
 import things_mcp.server as server
 from things_mcp.server import _build_project_items, _read_project_contents, add_project
 
-
-def sc(result):
-    return result.structured_content
 
 
 def dispatched_payload(mock):
@@ -29,7 +27,7 @@ class TestBuildProjectItems:
             {"type": "todo", "title": "a1"},
             {"type": "heading", "title": "B"},
         ])
-        assert err is None
+        assert err is None and payload is not None
         assert [p["type"] for p in payload] == ["heading", "to-do", "heading"]
         assert plan == [("heading", "A"), ("todo", "a1"), ("heading", "B")]
 
@@ -43,7 +41,7 @@ class TestBuildProjectItems:
             "type": "todo", "title": "t", "notes": "n",
             "when": "today", "deadline": "2026-12-31", "tags": ["x"],
         }])
-        assert err is None
+        assert err is None and payload is not None
         assert payload[0]["attributes"] == {
             "title": "t", "notes": "n", "when": "today",
             "deadline": "2026-12-31", "tags": ["x"],
@@ -55,7 +53,7 @@ class TestBuildProjectItems:
         payload, _, err = _build_project_items(
             [{"type": "todo", "title": "t", "checklist_items": ["a", "b"]}]
         )
-        assert err is None
+        assert err is None and payload is not None
         assert payload[0]["attributes"]["checklist-items"] == [
             {"type": "checklist-item", "attributes": {"title": "a"}},
             {"type": "checklist-item", "attributes": {"title": "b"}},
@@ -63,6 +61,7 @@ class TestBuildProjectItems:
 
     def test_headings_take_only_a_title(self):
         _, _, err = _build_project_items([{"type": "heading", "title": "h", "when": "today"}])
+        assert err is not None
         assert "heading" in err and "when" in err
 
     @pytest.mark.parametrize("bad,expected", [
@@ -73,6 +72,7 @@ class TestBuildProjectItems:
     ])
     def test_rejections(self, bad, expected):
         _, _, err = _build_project_items([bad])
+        assert err is not None
         assert expected in err
 
     def test_the_position_of_a_bad_item_is_reported(self):
@@ -81,6 +81,7 @@ class TestBuildProjectItems:
             {"type": "todo", "title": "ok"},
             {"type": "todo"},
         ])
+        assert err is not None
         assert "Item 3" in err
 
 
@@ -164,8 +165,8 @@ class TestAddProjectWithItems:
                 {"type": "todo", "title": "Wireframes"},
                 {"type": "heading", "title": "Build"},
             ])
-        assert sc(result)["id"] == "pid"
-        assert sc(result)["items"] == [
+        assert tool_data(result)["id"] == "pid"
+        assert tool_data(result)["items"] == [
             {"type": "heading", "title": "Design", "id": "h1"},
             {"type": "todo", "title": "Wireframes", "id": "t1"},
             {"type": "heading", "title": "Build", "id": "h2"},
@@ -182,8 +183,8 @@ class TestAddProjectWithItems:
             result = await add_project(title="P", items=[
                 {"type": "heading", "title": "A"}, {"type": "todo", "title": "b"},
             ])
-        assert [i["id"] for i in sc(result)["items"]] == ["h1", None]
-        text = result.content[0].text
+        assert [i["id"] for i in tool_data(result)["items"]] == ["h1", None]
+        text = tool_text(result)
         assert "UNCONFIRMED" in text
         # The project itself did resolve, so its contents are checkable —
         # different advice from the case where nothing resolved at all.
@@ -195,13 +196,13 @@ class TestAddProjectWithItems:
                 title="P", todos=["a"], items=[{"type": "todo", "title": "b"}]
             )
         dispatch.assert_not_called()
-        assert "not both" in sc(result)["error"]
+        assert "not both" in tool_data(result)["error"]
 
     async def test_empty_items_is_refused(self):
         with patch.object(server.url_scheme, "execute_url") as dispatch:
             result = await add_project(title="P", items=[])
         dispatch.assert_not_called()
-        assert "empty" in sc(result)["error"]
+        assert "empty" in tool_data(result)["error"]
 
     async def test_a_bad_item_never_reaches_things(self):
         # The cost of dispatching a malformed payload is a modal dialog on the
@@ -211,7 +212,7 @@ class TestAddProjectWithItems:
                 title="P", items=[{"type": "todo", "title": "t", "priority": "high"}]
             )
         dispatch.assert_not_called()
-        assert "priority" in sc(result)["error"]
+        assert "priority" in tool_data(result)["error"]
 
     async def test_without_items_the_old_path_is_used(self):
         with patch.object(server.url_scheme, "execute_url") as dispatch, patch.object(
@@ -219,7 +220,7 @@ class TestAddProjectWithItems:
         ), patch.object(server, "_tasks_of", return_value=[row("P", "pid")]):
             result = await add_project(title="P", todos=["a", "b"])
         assert dispatch.call_args[0][0].startswith("things:///add-project")
-        assert "items" not in sc(result)
+        assert "items" not in tool_data(result)
 
     async def test_wait_ms_zero_skips_the_item_lookup(self):
         with patch.object(server.url_scheme, "execute_url"), patch.object(
@@ -229,5 +230,5 @@ class TestAddProjectWithItems:
                 title="P", items=[{"type": "heading", "title": "H"}], wait_ms=0
             )
         tasks.assert_not_called()
-        assert sc(result)["id"] is None
-        assert [i["id"] for i in sc(result)["items"]] == [None]
+        assert tool_data(result)["id"] is None
+        assert [i["id"] for i in tool_data(result)["items"]] == [None]

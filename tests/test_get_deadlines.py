@@ -4,11 +4,11 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from tests._helpers import tool_text
+from tests._helpers import tool_text, tool_data
 from things_mcp.server import get_deadlines
 
 
-def _dated(title, days_out, uuid=None):
+def _dated(title, days_out, uuid=None) -> dict:
     deadline = (datetime.now().date() + timedelta(days=days_out)).isoformat()
     return {
         'uuid': uuid or f'uuid-{title}',
@@ -95,7 +95,7 @@ async def test_pagination_and_structured_content(mocker):
     result = await get_deadlines(limit=2)
 
     assert "Showing 1-2 of 3 items" in tool_text(result)
-    sc = result.structured_content
+    sc = tool_data(result)
     assert sc["count"] == 2
     assert sc["total"] == 3
     assert sc["limit"] == 2
@@ -123,7 +123,7 @@ async def test_a_project_does_not_drag_its_children_into_the_payload(mocker):
 
     result = await get_deadlines()
 
-    assert 'items' not in result.structured_content['items'][0]
+    assert 'items' not in tool_data(result)['items'][0]
     assert 'Pay balance' not in tool_text(result)
 
 
@@ -135,7 +135,7 @@ async def test_a_todo_keeps_its_checklist(mocker):
 
     result = await get_deadlines()
 
-    assert result.structured_content['items'][0]['checklist']
+    assert tool_data(result)['items'][0]['checklist']
     assert 'Passport' in tool_text(result)
 
 

@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from tests._helpers import tool_text
+from tests._helpers import tool_text, tool_data
 from things_mcp.server import get_item
 
 
@@ -55,7 +55,7 @@ async def test_an_area_is_never_asked_for_its_nested_tree(mocker, mock_area):
     result = await get_item('test-area-uuid', include_items=True)
 
     assert all(c.kwargs.get('include_items') is None for c in mock_get.call_args_list)
-    assert 'items' not in result.structured_content['items'][0]
+    assert 'items' not in tool_data(result)['items'][0]
 
 
 @pytest.mark.asyncio
@@ -114,14 +114,14 @@ async def test_missing_item_is_an_error(mocker):
     result = await get_item('no-such-uuid')
 
     assert "No item found with ID 'no-such-uuid'" in tool_text(result)
-    assert result.structured_content["error"]
+    assert tool_data(result)["error"]
 
 
 @pytest.mark.asyncio
 async def test_structured_content_matches_the_other_read_tools(mocker, mock_todo):
     mocker.patch('things.get', return_value=mock_todo)
 
-    sc = (await get_item('test-todo-uuid')).structured_content
+    sc = tool_data(await get_item('test-todo-uuid'))
 
     assert sc["count"] == 1
     assert sc["total"] == 1

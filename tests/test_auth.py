@@ -247,8 +247,9 @@ class TestPersistence:
             password=PASSWORD, base_url="https://things.example.com", state_path=state
         )
         txn = await start_login(first, client)
-        await first._handle_login(FakeRequest({"txn": txn, "password": PASSWORD}))
+        await first._handle_login(FakeRequest({"txn": txn, "password": PASSWORD}))  # pyright: ignore[reportArgumentType]
         code = await first.load_authorization_code(client, next(iter(first.auth_codes)))
+        assert code is not None
         token = await first.exchange_authorization_code(client, code)
 
         # A fresh process reading the same state file.
@@ -257,6 +258,7 @@ class TestPersistence:
         )
         assert await second.get_client("client-1") is not None
         assert await second.verify_token(token.access_token) is not None
+        assert token.refresh_token is not None
         assert await second.load_refresh_token(client, token.refresh_token) is not None
 
     async def test_state_file_is_not_world_readable(self, tmp_path, client):
@@ -273,10 +275,11 @@ class TestPersistence:
             password=PASSWORD, base_url="https://things.example.com", state_path=state
         )
         txn = await start_login(provider, client)
-        await provider._handle_login(FakeRequest({"txn": txn, "password": PASSWORD}))
+        await provider._handle_login(FakeRequest({"txn": txn, "password": PASSWORD}))  # pyright: ignore[reportArgumentType]
         code = await provider.load_authorization_code(
             client, next(iter(provider.auth_codes))
         )
+        assert code is not None
         token = await provider.exchange_authorization_code(client, code)
 
         stored = json.loads(state.read_text())

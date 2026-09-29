@@ -124,7 +124,7 @@ def next_occurrences(area=None, project=None):
             task = things.tasks(uuid=row['uuid'])
         except Exception:
             continue
-        if not task:
+        if not isinstance(task, dict):
             continue
         task['start_date'] = row['start_date']
         # things.py read the sentinel in the deadline column as a real date.

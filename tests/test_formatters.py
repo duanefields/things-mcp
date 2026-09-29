@@ -149,7 +149,7 @@ class TestCalculateAge:
     def test_age_none_value(self):
         """Test that None value raises TypeError."""
         with pytest.raises((ValueError, TypeError)):
-            _calculate_age(None)
+            _calculate_age(None)  # pyright: ignore[reportArgumentType]
 
 
 class TestFormatTodo:

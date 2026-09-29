@@ -17,8 +17,8 @@ def reset_dispatch():
 
 
 async def health_json():
-    response = await health(None)
-    return json.loads(response.body)
+    response = await health(None)  # pyright: ignore[reportArgumentType]
+    return json.loads(bytes(response.body))
 
 
 @pytest.fixture

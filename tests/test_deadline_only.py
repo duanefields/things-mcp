@@ -6,7 +6,7 @@ whole projects among them. The app treats such a task as though it were
 scheduled on its deadline. See server._deadline_only_upcoming.
 """
 import pytest
-from tests._helpers import tool_text
+from tests._helpers import tool_text, tool_data
 from things_mcp.formatters import upcoming_order
 from things_mcp.server import get_upcoming
 
@@ -62,7 +62,7 @@ async def test_get_upcoming_does_not_invent_a_start_date(upcoming):
 
     result = await get_upcoming()
 
-    (item,) = result.structured_content['items']
+    (item,) = tool_data(result)['items']
     assert item['start_date'] is None
     assert item['deadline_only'] is True
     assert "Start Date:" not in tool_text(result)

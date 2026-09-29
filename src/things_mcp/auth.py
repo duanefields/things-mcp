@@ -30,7 +30,6 @@ from typing import Any
 
 import anyio
 from mcp.server.auth.provider import (
-    AccessToken,
     AuthorizationCode,
     AuthorizationParams,
     AuthorizeError,
@@ -38,18 +37,14 @@ from mcp.server.auth.provider import (
     TokenError,
     construct_redirect_uri,
 )
+from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 from pydantic import AnyHttpUrl
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse, Response
 from starlette.routing import Route
 
-from fastmcp.server.auth.auth import (
-    AuthProvider,
-    ClientRegistrationOptions,
-    OAuthProvider,
-    RevocationOptions,
-)
+from fastmcp.server.auth.auth import AccessToken, AuthProvider, OAuthProvider
 
 logger = logging.getLogger(__name__)
 
