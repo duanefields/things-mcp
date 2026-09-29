@@ -169,7 +169,11 @@ class TestAddTodos:
                 wait_ms=0,
             )
         attrs = self.dispatch_payload(dispatch)[0]["attributes"]
-        assert attrs["checklist-items"] == ["a", "b"]
+        # Plain strings here make Things reject the whole batch.
+        assert attrs["checklist-items"] == [
+            {"type": "checklist-item", "attributes": {"title": "a"}},
+            {"type": "checklist-item", "attributes": {"title": "b"}},
+        ]
         assert attrs["heading-id"] == "h1"
         assert attrs["when"] == "today"
 

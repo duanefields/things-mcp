@@ -1583,6 +1583,13 @@ async def add_todos(
         for key, attr in PER_TODO.items():
             if todo.get(key) is not None:
                 attributes[attr] = todo[key]
+        # The json command wants checklist-item objects, not strings. Given plain
+        # strings, Things rejects the whole batch and nothing at all is created.
+        if "checklist-items" in attributes:
+            attributes["checklist-items"] = [
+                {"type": "checklist-item", "attributes": {"title": item}}
+                for item in attributes["checklist-items"]
+            ]
         # list_id and list_title are mutually exclusive; an explicit id wins.
         if "list-id" in attributes and todo.get("list_title") is not None \
                 and todo.get("list_id") is None:
