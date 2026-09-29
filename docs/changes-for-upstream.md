@@ -74,12 +74,14 @@ is fixed at the moment it is created, and before this there was no way to expres
 `items` accepts headings and todos interleaved, in order, and returns an id for each. Item
 ids are read out of the created project rather than matched by title, which is exact.
 
-Two behaviors found by testing, both of which the tool now enforces or documents:
+Two behaviors found by testing:
 
-- A nested todo carrying `checklist-items` makes Things reject the **whole** project, and
-  it reports this with a modal dialog rather than a silent failure. Since a tool sits
-  between a model and that payload, this is validated before dispatch — the difference
-  between an error in the transcript and a dialog on an unattended machine's screen.
+- `checklist-items` in a json payload must be an array of `checklist-item` objects,
+  `{"type": "checklist-item", "attributes": {"title": ...}}`, not plain strings. Given
+  strings, Things rejects the **whole** payload — for a project, with a modal dialog
+  rather than a silent failure. Both `items` and `add-todos` convert the tool's list of
+  strings to that shape. (This was first misread as nested todos not supporting
+  checklists at all; they do.)
 - Tags that do not already exist are silently dropped. General Things behavior, but worth
   knowing when a model invents tag names.
 

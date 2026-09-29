@@ -49,14 +49,17 @@ class TestBuildProjectItems:
             "deadline": "2026-12-31", "tags": ["x"],
         }
 
-    def test_checklist_items_are_refused_with_a_way_forward(self):
-        # Things rejects the entire project payload if a nested todo carries
-        # these, and does it with a modal dialog, so it must never be dispatched.
-        _, _, err = _build_project_items(
-            [{"type": "todo", "title": "t", "checklist_items": ["a"]}]
+    def test_checklist_items_are_sent_as_checklist_item_objects(self):
+        # Plain strings here make Things reject the entire project with a modal
+        # dialog. The object shape is accepted -- verified against Things 3.
+        payload, _, err = _build_project_items(
+            [{"type": "todo", "title": "t", "checklist_items": ["a", "b"]}]
         )
-        assert "checklist_items" in err
-        assert "add-todos" in err
+        assert err is None
+        assert payload[0]["attributes"]["checklist-items"] == [
+            {"type": "checklist-item", "attributes": {"title": "a"}},
+            {"type": "checklist-item", "attributes": {"title": "b"}},
+        ]
 
     def test_headings_take_only_a_title(self):
         _, _, err = _build_project_items([{"type": "heading", "title": "h", "when": "today"}])
@@ -205,10 +208,10 @@ class TestAddProjectWithItems:
         # host's screen, so validation has to happen before dispatch.
         with patch.object(server.url_scheme, "execute_url") as dispatch:
             result = await add_project(
-                title="P", items=[{"type": "todo", "title": "t", "checklist_items": ["a"]}]
+                title="P", items=[{"type": "todo", "title": "t", "priority": "high"}]
             )
         dispatch.assert_not_called()
-        assert "checklist_items" in sc(result)["error"]
+        assert "priority" in sc(result)["error"]
 
     async def test_without_items_the_old_path_is_used(self):
         with patch.object(server.url_scheme, "execute_url") as dispatch, patch.object(

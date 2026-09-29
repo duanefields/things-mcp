@@ -282,17 +282,11 @@ already exists, so a project's headings have to be set up as it is created. Retu
 id of the project and of every item, in the order supplied, so a heading id can be passed
 straight to `add-todos` as `heading_id`.
 
-A todo here may carry `notes`, `when`, `deadline` and `tags`. A heading takes only a
-title.
+A todo here may carry `notes`, `when`, `deadline`, `tags` and `checklist_items`. A
+heading takes only a title.
 
-Two limitations worth knowing:
-
-- **No `checklist_items`.** Things rejects the entire project payload if a nested todo
-  carries them — and does it by showing a modal dialog rather than failing quietly. The
-  tool refuses these before dispatching. Create the project first, then use `add-todos`
-  with the returned heading id.
-- **Tags must already exist** in Things, or they are silently dropped. This is general
-  Things behavior, not specific to `items`.
+**Tags must already exist** in Things, or they are silently dropped. This is general
+Things behavior, not specific to `items`.
 
 Use `todos` instead when the project needs no headings; it takes a plain list of titles.
 Passing both is an error.

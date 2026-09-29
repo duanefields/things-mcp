@@ -1199,14 +1199,20 @@ _TODO_ATTRS = {
     "heading_id": "heading-id",
 }
 
-# What a to-do nested inside a project create may carry. Checklist items are
-# absent deliberately: Things rejects the entire payload if one appears there,
-# and does it by showing the user a modal error dialog rather than failing
-# quietly, so this has to be caught before dispatch rather than after.
+# What a to-do nested inside a project create may carry.
 _NESTED_TODO_ATTRS = {
     k: v for k, v in _TODO_ATTRS.items()
-    if k in ("notes", "when", "deadline", "tags")
+    if k in ("notes", "when", "deadline", "tags", "checklist_items")
 }
+
+
+def _checklist_objects(titles):
+    """Checklist titles in the shape the things:///json command wants.
+
+    Given plain strings instead, Things rejects the entire payload -- with a
+    modal error dialog when the payload is a project -- and creates nothing.
+    """
+    return [{"type": "checklist-item", "attributes": {"title": t}} for t in titles]
 _POLL_INITIAL_SECONDS = 0.05
 _POLL_MAX_SECONDS = 0.2
 
@@ -1335,20 +1341,15 @@ def _build_project_items(items):
         else:
             unknown = set(item) - set(_NESTED_TODO_ATTRS) - {"type", "title"}
             if unknown:
-                hint = ""
-                if "checklist_items" in unknown:
-                    hint = (
-                        " Things rejects a whole project payload containing checklist "
-                        "items on a nested todo; create the project first, then use "
-                        "add-todos with the returned heading id."
-                    )
                 return None, None, (
-                    f"{where} has unsupported field(s): {', '.join(sorted(unknown))}.{hint}"
+                    f"{where} has unsupported field(s): {', '.join(sorted(unknown))}."
                 )
             attributes = {"title": title}
             for key, attr in _NESTED_TODO_ATTRS.items():
                 if item.get(key) is not None:
                     attributes[attr] = item[key]
+            if "checklist-items" in attributes:
+                attributes["checklist-items"] = _checklist_objects(attributes["checklist-items"])
             payload.append({"type": "to-do", "attributes": attributes})
 
         plan.append((kind, title))
@@ -1583,13 +1584,8 @@ async def add_todos(
         for key, attr in PER_TODO.items():
             if todo.get(key) is not None:
                 attributes[attr] = todo[key]
-        # The json command wants checklist-item objects, not strings. Given plain
-        # strings, Things rejects the whole batch and nothing at all is created.
         if "checklist-items" in attributes:
-            attributes["checklist-items"] = [
-                {"type": "checklist-item", "attributes": {"title": item}}
-                for item in attributes["checklist-items"]
-            ]
+            attributes["checklist-items"] = _checklist_objects(attributes["checklist-items"])
         # list_id and list_title are mutually exclusive; an explicit id wins.
         if "list-id" in attributes and todo.get("list_title") is not None \
                 and todo.get("list_id") is None:
@@ -1757,10 +1753,8 @@ async def add_project(
             `items` when the project needs no headings.
         items: The project's contents, in the order they should appear. Each is
             an object with `type` ("heading" or "todo") and a `title`. A todo may
-            also carry `notes`, `when`, `deadline` and `tags`; a heading takes
-            only a title. Checklist items are not accepted here -- Things rejects
-            the whole project if one appears -- so add those afterwards with
-            add-todos, using the heading id this returns.
+            also carry `notes`, `when`, `deadline`, `tags` and `checklist_items`
+            (list of strings); a heading takes only a title.
         wait_ms: How long to wait for the new ID, in milliseconds. Omit for the
             default (1500). Pass 0 to return immediately with a null ID.
     """
